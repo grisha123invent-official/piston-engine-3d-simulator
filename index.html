@@ -96,8 +96,17 @@
     background:#f8514922;border:1px solid var(--bad);color:#ffb3ad;padding:8px 14px;border-radius:9px;
     font-size:12px;max-width:60vw;}
 
-  @media (max-width:1100px){ #right{display:none;} }
-  @media (max-width:620px){ #left{width:calc(100vw - 20px);max-height:44vh;} }
+  /* ── узкие экраны: правая панель превращается в выдвижную шторку ── */
+  #panelToggle{display:none;position:absolute;right:10px;bottom:70px;z-index:7;
+    background:#1f6feb;border-color:#1f6feb;font-weight:600;border-radius:20px;padding:8px 14px;}
+  @media (max-width:1100px){
+    #panelToggle{display:block;}
+    #right{left:10px;right:10px;width:auto;top:auto;height:min(62vh,560px);bottom:70px;
+      transform:translateY(calc(100% + 80px));transition:transform .28s ease;}
+    #right.open{transform:none;}
+    #chartHost{height:min(38vh,340px);}
+  }
+  @media (max-width:620px){ #left{width:calc(100vw - 20px);max-height:40vh;} }
 </style>
 <script type="importmap">
 { "imports": {
@@ -190,6 +199,8 @@
   </div>
   <div class="hint">🖱 вращение — ЛКМ, зум — колесо, сдвиг — ПКМ · пробел — пауза, ←/→ — шаг</div>
 </div>
+
+<button id="panelToggle">📖 Теория и графики</button>
 
 <!-- ══════════ правая панель: теория, графики, показатели ══════════ -->
 <div class="panel" id="right">

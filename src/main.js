@@ -282,8 +282,12 @@ const pct = v => Number.isFinite(v) ? (v * 100).toFixed(1) + ' %' : '—';
 
 function updateMetrics(rpmInst){
   const m = engine.metrics, g = engine.geometry;
-  $('mPower').textContent = fmt(m.brakePower_kW, 1, 'кВт') +
-    (Number.isFinite(m.brakePower_kW) ? ` (${(m.brakePower_kW * 1.36).toFixed(0)} л.с.)` : '');
+  const neg = m.brakePower_kW < 0;   // трение больше индикаторной работы — торможение двигателем
+  $('mPower').textContent = neg
+    ? fmt(m.brakePower_kW, 1, 'кВт') + ' — торможение двигателем'
+    : fmt(m.brakePower_kW, 1, 'кВт') +
+      (Number.isFinite(m.brakePower_kW) ? ` (${(m.brakePower_kW * 1.36).toFixed(0)} л.с.)` : '');
+  $('mPower').style.color = neg ? 'var(--warn)' : '';
   $('mPowerInd').textContent = fmt(m.indPower_kW, 1, 'кВт');
   $('mTorque').textContent = fmt(m.brakeTorque_Nm, 0, 'Н·м');
   $('mDispl').textContent = fmt(g.Vd_cm3 * state.cylinders / 1000, 2, 'л');
@@ -413,6 +417,13 @@ document.querySelectorAll('[data-cam]').forEach(b => b.onclick = () => {
   .forEach(id => $(id).onchange = applyVisibility);
 $('sound').onchange = e => { state.soundOn = e.target.checked; };
 
+/* шторка с теорией и графиками на узких экранах */
+$('panelToggle').onclick = () => {
+  const open = $('right').classList.toggle('open');
+  $('panelToggle').textContent = open ? '✕ Свернуть' : '📖 Теория и графики';
+  if (open) charts.resize?.();
+};
+
 document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => {
   document.querySelectorAll('[data-tab]').forEach(x => x.classList.toggle('on', x === b));
   document.querySelectorAll('.tabpane').forEach(p => p.classList.remove('on'));
@@ -454,7 +465,8 @@ addEventListener('resize', () => {
 });
 
 /* режим «только 3D» и один кадр — для скриншотов и встраивания */
-if (qs.get('ui') === '0') ['left', 'right', 'timeline'].forEach(id => $(id).style.display = 'none');
+if (qs.get('ui') === '0')
+  ['left', 'right', 'timeline', 'panelToggle'].forEach(id => $(id).style.display = 'none');
 
 /* синхронизируем стартовые значения полей с параметрами движка */
 $('rpm').value = engine.params.rpm; $('rpmVal').textContent = engine.params.rpm;

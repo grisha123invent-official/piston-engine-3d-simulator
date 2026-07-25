@@ -38,7 +38,7 @@ const LAYOUT_BY_CYL = { 1: 'single', 4: 'i4', 8: 'v8' };
 const state = {
   theta: num('deg', 0, 0, 719.9),
   playing: !qs.has('pause'),
-  layout: ['single', 'i4', 'v8'].includes(qs.get('layout'))
+  layout: ['single', 'i4', 'boxer4', 'v8'].includes(qs.get('layout'))
     ? qs.get('layout')
     : (LAYOUT_BY_CYL[qs.get('cyl')] || 'single'),
   twoStroke: qs.get('stroke') === '2',
@@ -62,6 +62,10 @@ const engine = createEngine({
   turbo: qs.get('turbo') === '1',
   intercooler: qs.get('intercooler') !== '0',
   intakeLen_mm: num('intakeLen', 350, 150, 900),
+  atkinson_deg: num('atkinson', 0, 0, 70),
+  directInjection: qs.get('di') === '1',
+  variableIntake: qs.get('varIntake') === '1',
+  balanceShafts: qs.get('shafts') === '1',
   layout: state.layout,
   cylinders: cylCount(),
   stroke2: state.twoStroke,
@@ -95,8 +99,15 @@ scene.add(new THREE.GridHelper(170, 50, 0x1e2733, 0x141c25).translateY(L.GRID_Y)
 
 function camPresets(){
   const n = cylCount();
-  const k = n === 8 ? 2.0 : n === 4 ? 1.85 : 1;
-  return {
+  const boxer = state.layout === 'boxer4';
+  const k = n === 8 ? 2.0 : boxer ? 1.9 : n === 4 ? 1.85 : 1;
+  /* у оппозита цилиндры лежат по бокам от вала, поэтому смотрим ниже и чуть сверху */
+  return boxer ? {
+    side:  [10, 38, 76],
+    iso:   [56, 30, 64],
+    front: [4, 20, 96],
+    top:   [1, 104, 10],
+  } : {
     side:  [52 * k, 16, 4 * k],
     iso:   [37 * k, 27, 43 * k],
     front: [3, 14, 60 * k],
@@ -106,7 +117,7 @@ function camPresets(){
 function setCam(name){
   const p = camPresets()[name] || camPresets().iso;
   camera.position.set(...p);
-  controls.target.set(0, 10, 0);
+  controls.target.set(0, state.layout === 'boxer4' ? 3 : 10, 0);
 }
 setCam(qs.get('cam') || 'iso');
 
@@ -124,7 +135,9 @@ function buildAll(){
   mech.setLayout?.(state.layout);
   mech.setTwoStroke?.(state.twoStroke);
   mech.setTurbo?.(!!engine.params.turbo || engine.params.boost_bar > 0);
-  mech.setIntakeLength?.(engine.params.intakeLen_mm);
+  mech.setIntakeLength?.(engine.metrics.intakeLenNow_mm ?? engine.params.intakeLen_mm, true);
+  mech.setBalanceShafts?.(!!engine.params.balanceShafts);
+  mech.setDirectInjection?.(!!engine.params.directInjection);
   scene.add(mech.group);
 
   fluids = buildFluids(mech.anchors, { cylinders: cylCount(), eps: engine.params.eps });
@@ -218,6 +231,12 @@ function buildFrame(rpmNow){
     chargeT_K: m.chargeT_K ?? 320,
     intercooler: !!engine.params.intercooler,
     turbo: !!engine.params.turbo,
+    balanceShafts: !!engine.params.balanceShafts,
+    directInjection: !!engine.params.directInjection,
+    variableIntake: !!engine.params.variableIntake,
+    atkinson_deg: engine.params.atkinson_deg ?? 0,
+    intakeLenNow_mm: m.intakeLenNow_mm ?? engine.params.intakeLen_mm,
+    intakeMode: m.intakeMode ?? 'fixed',
     crankcaseFrac: cyl[0]?.pistonFrac ?? 0,
     knockNow,
     totalTorque_Nm: cylCount() > 1
@@ -348,6 +367,13 @@ function updateMetrics(rpmInst){
   $('mImep').textContent = fmt(m.imep_bar, 2, t(U.bar));
   $('mWork').textContent = fmt(m.workPerCycle_J, 0, t(U.joule));
   $('mVolEff').textContent = pct(m.volEff);
+  $('mRatios').textContent = Number.isFinite(m.effCompressionRatio)
+    ? `${m.effCompressionRatio.toFixed(1)} / ${(m.expansionRatio ?? engine.params.eps).toFixed(1)}`
+    : '—';
+  $('mCooling').textContent = m.chargeCooling_K > 0.05
+    ? '−' + m.chargeCooling_K.toFixed(1) + ' K'
+    : t(UI.none);
+  $('mEffClosed').textContent = pct(m.effClosedCycle);
   $('mEffInd').textContent = pct(m.effIndicated);
   $('mEffBrake').textContent = pct(m.effBrake);
   $('mEffOtto').textContent = pct(m.effOtto);
@@ -381,7 +407,8 @@ function recompute(patch, rebuild3d = false){
       mech.setCompression?.(patch.eps);
       fluids.setAnchors?.(mech.anchors);
     }
-    if (patch.intakeLen_mm !== undefined) mech.setIntakeLength?.(patch.intakeLen_mm);
+    if (patch.intakeLen_mm !== undefined || patch.variableIntake !== undefined || patch.rpm !== undefined)
+      mech.setIntakeLength?.(engine.metrics.intakeLenNow_mm ?? engine.params.intakeLen_mm);
     if (patch.boost_bar !== undefined || patch.turbo !== undefined){
       mech.setTurbo?.(!!engine.params.turbo || engine.params.boost_bar > 0);
       fluids.setAnchors?.(mech.anchors);
@@ -459,8 +486,22 @@ bind('boost', 'boostVal', v => v.toFixed(1), v => {
   $('boostNote').textContent = boostNote(v);
   return { boost_bar: v };
 });
+bind('atkinson', 'atkVal', v => v, v => ({ atkinson_deg: v }));
 $('turbo').onchange = e => recompute({ turbo: e.target.checked });
 $('intercooler').onchange = e => recompute({ intercooler: e.target.checked });
+$('directInjection').onchange = e => {
+  recompute({ directInjection: e.target.checked });
+  mech.setDirectInjection?.(e.target.checked);
+  fluids.setAnchors?.(mech.anchors);
+};
+$('variableIntake').onchange = e => {
+  recompute({ variableIntake: e.target.checked });
+  $('intakeLen').disabled = e.target.checked;
+};
+$('balanceShafts').onchange = e => {
+  recompute({ balanceShafts: e.target.checked });
+  mech.setBalanceShafts?.(e.target.checked);
+};
 
 $('slowmo').oninput = e => { state.slowIdx = +e.target.value; updateSlowHint(); };
 function updateSlowHint(){
@@ -512,6 +553,7 @@ function setTwoStroke(on, silent){
 const LAYOUT_NAMES = {
   single: { ru: 'одноцилиндровый', en: 'single cylinder' },
   i4: { ru: 'рядная четвёрка', en: 'inline-four' },
+  boxer4: { ru: 'оппозитная четвёрка', en: 'flat-four' },
   v8: { ru: 'V8 с развалом 90°', en: 'V8 at 90°' },
 };
 function updateLayoutNote(){
@@ -588,6 +630,9 @@ const PRESETS = {
   diesel:{ layout: 'i4',     fuel: 'diesel', two: false, rpm: 2500, throttle: 100, eps: 18, adv: 18, boost: 0.7, turbo: true, slow: 3 },
   two:   { layout: 'single', fuel: 'petrol', two: true,  rpm: 3000, throttle: 100, eps: 9,  adv: 18, boost: 0,  turbo: false, slow: 3 },
   v8:    { layout: 'v8',     fuel: 'petrol', two: false, rpm: 3600, throttle: 100, eps: 10.5, adv: 22, boost: 0, turbo: false, slow: 4 },
+  boxer: { layout: 'boxer4', fuel: 'petrol', two: false, rpm: 3200, throttle: 100, eps: 10.5, adv: 20, boost: 0, turbo: false, slow: 4 },
+  atkinson: { layout: 'i4',  fuel: 'petrol', two: false, rpm: 2000, throttle: 50, eps: 14, adv: 20, boost: 0,
+              turbo: false, octane: 95, slow: 3, atkinson: 40, di: true },
 };
 document.querySelectorAll('[data-preset]').forEach(b => b.onclick = () => {
   const p = PRESETS[b.dataset.preset];
@@ -604,6 +649,8 @@ document.querySelectorAll('[data-preset]').forEach(b => b.onclick = () => {
   setSlider('advance', p.adv, 'advVal');
   setSlider('boost', p.boost, 'boostVal', v => (+v).toFixed(1));
   if (p.octane !== undefined) setSlider('octane', p.octane, 'octVal');
+  setSlider('atkinson', p.atkinson ?? 0, 'atkVal');
+  $('directInjection').checked = !!p.di;
   $('turbo').checked = p.turbo;
   $('advance').disabled = p.fuel === 'diesel';
   $('octane').disabled = p.fuel === 'diesel';
@@ -616,6 +663,7 @@ document.querySelectorAll('[data-preset]').forEach(b => b.onclick = () => {
     layout: p.layout, cylinders: cylCount(), stroke2: p.two, fuel: p.fuel,
     rpm: p.rpm, throttle: p.throttle / 100, eps: p.eps, sparkAdvance_deg: p.adv,
     boost_bar: p.boost, turbo: p.turbo,
+    atkinson_deg: p.atkinson ?? 0, directInjection: !!p.di,
     ...(p.octane !== undefined ? { octane: p.octane } : {}),
   }, true);
   setCam('iso');
@@ -697,8 +745,13 @@ setSlider('advance', engine.params.sparkAdvance_deg, 'advVal');
 setSlider('octane', engine.params.octane, 'octVal');
 setSlider('boost', engine.params.boost_bar ?? 0, 'boostVal', v => (+v).toFixed(1));
 setSlider('intakeLen', engine.params.intakeLen_mm ?? 350, 'intakeLenVal');
+setSlider('atkinson', engine.params.atkinson_deg ?? 0, 'atkVal');
 $('turbo').checked = !!engine.params.turbo;
 $('intercooler').checked = engine.params.intercooler !== false;
+$('directInjection').checked = !!engine.params.directInjection;
+$('variableIntake').checked = !!engine.params.variableIntake;
+$('balanceShafts').checked = !!engine.params.balanceShafts;
+$('intakeLen').disabled = !!engine.params.variableIntake;
 document.querySelectorAll('[data-layout]').forEach(x => x.classList.toggle('on', x.dataset.layout === state.layout));
 document.querySelectorAll('[data-fuel]').forEach(x => x.classList.toggle('on', x.dataset.fuel === state.fuel));
 applyDom(document);

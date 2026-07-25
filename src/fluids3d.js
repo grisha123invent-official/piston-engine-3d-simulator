@@ -12,13 +12,22 @@
  *   8. turbine   — выхлопные газы, раскручивающие турбину;                  (вторая волна)
  *   9. scavenge  — двухтактная продувка и смесь в кривошипной камере.       (вторая волна)
  *
- * Наклонные ряды (V8) поддержаны сквозным образом: якоря механизма уже отдают
- * точки в системе механизма, а собственная геометрия модуля строится через
- * bVec(x, y, z, tilt) — тот же поворот ряда, что и в engine3d.js.
+ * Наклонные ряды поддержаны сквозным образом: якоря механизма уже отдают точки
+ * в системе механизма, а собственная геометрия модуля строится через
+ * bVec(x, y, z, tilt) — тот же поворот ряда, что и в engine3d.js. Наклон бывает
+ * ±45° (V8) и ±90° (оппозитная четвёрка): у горизонтальных рядов «верх цилиндра»
+ * уезжает в ±X, поэтому запасные габариты (поддон, рубашка, ресивер) считаются
+ * по фактической геометрии рядов, а не по вертикали.
+ *
+ * Третья волна:
+ *   • прямой впрыск бензина (frame.directInjection) — факел в цилиндр на сжатии,
+ *     с видимым охлаждением заряда, пока топливо испаряется;
+ *   • обратный выброс цикла Аткинсона (frame.atkinson_deg > 0) — встречная струя
+ *     из цилиндра во впускной канал, пока впускной клапан ещё открыт.
  *
  * Никаких текстур и внешних ресурсов: только процедурная геометрия и материалы.
  * Модуль не создаёт ни света, ни камеры, ни рендерера — отдаёт готовую THREE.Group.
- * Суммарный бюджет частиц — 2820 (см. BUDGET ниже, потолок по контракту ~3000).
+ * Суммарный бюджет частиц — 2980 (см. BUDGET ниже, потолок по контракту ~3000).
  */
 
 import * as THREE from 'three';
@@ -26,15 +35,16 @@ import { L, PIN_Y_TDC, layoutSpec } from './layout.js';
 
 /* ─────────────────────────── константы ─────────────────────────── */
 
-/** Размеры пулов частиц. Сумма = 2820 (< 3000 по контракту второй волны). */
+/** Размеры пулов частиц. Сумма = 2980 (< 3000 по контракту). */
 const BUDGET = {
-  fuel: 300,      // впрыск топлива
+  fuel: 300,      // впрыск топлива (порт-форсунка, дизель, прямой впрыск бензина)
   exhaust: 320,   // выхлопной дым
   oil: 480,       // масляный контур
   coolant: 560,   // рубашка охлаждения + петля к радиатору
   boost: 420,     // наддув: компрессор → интеркулер → ресивер → патрубки
   turbine: 260,   // струя выхлопа на турбину
   scavenge: 480,  // двухтактная продувка (петля + короткое замыкание + вытеснение)
+  reflux: 160,    // обратный выброс заряда во впуск при цикле Аткинсона
 };
 
 /** Палитра — та же тёмная техно-эстетика, что и в сцене. */
@@ -59,7 +69,15 @@ const COL = {
   fresh: new THREE.Color(0x6fd0ff),        // свежая смесь в продувке
   shortCut: new THREE.Color(0xc8f6ff),     // короткое замыкание продувки (бросается в глаза)
   burnt: new THREE.Color(0x8d939c),        // вытесняемый выхлоп
+  /* ── третья волна ── */
+  gdi: new THREE.Color(0xffe9a8),          // факел прямого впрыска бензина (мельче дизельного)
+  cooled: new THREE.Color(0x59b6ff),       // заряд, охлаждённый испарением топлива
+  reflux: new THREE.Color(0x9adcff),       // обратный выброс во впуск (цикл Аткинсона)
 };
+
+/* Окно прямого впрыска бензина по углу цикла: короче дизельного (336…378°)
+   и заметно раньше — топливу нужно время испариться и охладить заряд. */
+const GDI_DEG0 = 262, GDI_DEG1 = 292;
 
 const HIDE = -9999;           // «мёртвая» частица уезжает под сцену
 const UP = new THREE.Vector3(0, 1, 0);
@@ -102,6 +120,11 @@ function bVec(x, y, z, tilt) {
   const p = bXY(x, y, tilt);
   return new THREE.Vector3(p.x, p.y, z);
 }
+/** Обратное преобразование: точка механизма → координаты своего ряда. */
+function unbXY(x, y, tilt) {
+  const c = Math.cos(tilt), s = Math.sin(tilt);
+  return { x: x * c - y * s, y: x * s + y * c };
+}
 
 /** Цвет заряда по его температуре: холодный голубой → горячий оранжевый. */
 function chargeColor(out, T) {
@@ -137,7 +160,7 @@ function normalizeAnchors(anchors, opts) {
   /* ── цилиндры ── */
   let src = Array.isArray(a.cylinders) && a.cylinders.length ? a.cylinders : null;
   if (!src) {
-    const name = a.layout
+    const name = a.layout || opts.layout
       || (num(opts.cylinders, 1) === 8 ? 'v8' : num(opts.cylinders, 1) === 4 ? 'i4' : 'single');
     src = layoutSpec(name).cyl.map((c) => ({ z: c.z, bankTilt: c.tilt }));
   }
@@ -150,6 +173,20 @@ function normalizeAnchors(anchors, opts) {
     const sx = num(o.mirror, 1) < 0 ? -1 : 1;
     /* точка из старого (одноуровневого) набора якорей, перенесённая на свой z */
     const legacy = (v) => (isVec(v) ? new THREE.Vector3(v.x, v.y, z) : null);
+
+    /* Форсунка. При прямом впрыске механизм переносит её в головку, но поле может
+       появиться позже — поэтому распознаём перенос по самой точке: если носик уже
+       внутри диаметра цилиндра у плоскости головки, это и есть форсунка прямого
+       впрыска; иначе ставим свою — рядом со свечой, чуть в сторону впуска. */
+    const inj = vecOr(o.injectorTip,
+      legacy(a.injectorTip) || bVec(sx * -6.9, deckY + 2.7, z, t));
+    const loc = unbXY(inj.x, inj.y, t);
+    const injInHead = Math.abs(loc.x) < L.BORE_R * 1.02
+      && loc.y < deckY + 1.0 && loc.y > deckY - L.STROKE_U * 0.5;
+    const diTip = vecOr(o.gdiInjectorTip || o.directInjectorTip || o.diInjectorTip,
+      legacy(a.gdiInjectorTip || a.directInjectorTip || a.diInjectorTip)
+      || (injInHead ? inj.clone() : bVec(sx * -1.75, deckY - 0.55, z, t)));
+
     return {
       index: i, x: 0, z, tilt: t, mirror: sx,
       axis: isVec(o.axis) ? new THREE.Vector3(o.axis.x, o.axis.y, o.axis.z)
@@ -160,8 +197,11 @@ function normalizeAnchors(anchors, opts) {
         legacy(a.intakePortEnd) || bVec(sx * -8.9, deckY + 2.6, z, t)),
       exhaustPortEnd: vecOr(o.exhaustPortEnd,
         legacy(a.exhaustPortEnd) || bVec(sx * 8.9, deckY + 2.6, z, t)),
-      injectorTip: vecOr(o.injectorTip,
-        legacy(a.injectorTip) || bVec(sx * -6.9, deckY + 2.7, z, t)),
+      injectorTip: inj,
+      /* порт-форсунка: механизм отдаёт её отдельно, даже когда активна форсунка в головке */
+      portTip: vecOr(o.portInjectorTip, legacy(a.portInjectorTip)
+        || (injInHead ? bVec(sx * -6.9, deckY + 2.7, z, t) : inj.clone())),
+      diTip,
       dieselTip: vecOr(o.dieselInjectorTip,
         legacy(a.dieselInjectorTip) || bVec(0, deckY - 0.4, z, t)),
       sparkTip: vecOr(o.sparkTip, legacy(a.sparkTip) || bVec(0, deckY - 0.8, z, t)),
@@ -182,11 +222,31 @@ function normalizeAnchors(anchors, opts) {
   const sparkTip = vecOr(a.sparkTip, cylinders[0].sparkTip.clone());
   const crankCenter = vec3(a.crankCenter, 0, 0, 0);
 
-  /* ── рубашка охлаждения ── */
+  /* Есть ли горизонтальные ряды (оппозит): у них «верх цилиндра» уезжает в ±X,
+     поэтому все запасные габариты считаем по фактической геометрии, а не по вертикали. */
+  const horizontal = cylinders.some((c) => Math.abs(c.tilt) > 1.2);
+
+  /* ── рубашка охлаждения ──
+     Запасная коробка — объединение коробок рядов, повёрнутых на свой наклон.
+     При нулевом наклоне это в точности прежний прямоугольник. */
   const jr = L.BORE_R + L.JACKET_GAP;
+  const jyBot = deckY - L.STROKE_U - 4.2;
+  let jxMin = Infinity, jxMax = -Infinity, jyMin = Infinity, jyMax = -Infinity;
+  for (const c of cylinders) {
+    for (const cx of [-jr - 0.9, jr + 0.9]) {
+      for (const cy of [jyBot, deckY]) {
+        const p = bXY(cx, cy, c.tilt);
+        if (p.x < jxMin) jxMin = p.x;
+        if (p.x > jxMax) jxMax = p.x;
+        if (p.y < jyMin) jyMin = p.y;
+        if (p.y > jyMax) jyMax = p.y;
+      }
+    }
+  }
+  if (!Number.isFinite(jxMin)) { jxMin = -jr - 0.9; jxMax = jr + 0.9; jyMin = jyBot; jyMax = deckY; }
   const jb = a.jacketBox || {};
-  const jmin = vec3(jb.min, -jr - 0.9, deckY - L.STROKE_U - 4.2, zMin - jr - 0.9);
-  const jmax = vec3(jb.max, jr + 0.9, deckY, zMax + jr + 0.9);
+  const jmin = vec3(jb.min, jxMin, jyMin, zMin - jr - 0.9);
+  const jmax = vec3(jb.max, jxMax, jyMax, zMax + jr + 0.9);
   if (jmax.y - jmin.y < 2) jmin.y = jmax.y - L.STROKE_U - 4.2;   // страховка от вырожденной коробки
 
   /* ── окна двухтактного ── */
@@ -255,11 +315,23 @@ function normalizeAnchors(anchors, opts) {
         out: new THREE.Vector3(...L.INTERCOOLER_POS).add(new THREE.Vector3(-5.2, 0, 0)),
         enabled: true,
       };
-  const plenum = vecOr(a.plenum, new THREE.Vector3(0, deckY + 9.5, zMid));
+  /* Впускной ресивер: над самой высокой плоскостью головки. У рядного это deckY,
+     у оппозита головки разъезжаются по бокам и ресивер садится низко — сверху блока. */
+  let deckTop = -Infinity;
+  for (const c of cylinders) deckTop = Math.max(deckTop, c.deckPos.y);
+  if (!Number.isFinite(deckTop)) deckTop = deckY;
+  const plenum = vecOr(a.plenum,
+    new THREE.Vector3(0, Math.max(deckTop, jmax.y) + 9.5, zMid));
+
+  /* Поддон: у оппозита он мелкий и широкий (иначе задевал бы горизонтальные ряды). */
+  const sumpY = num(a.sumpY, horizontal ? L.SUMP_Y + 2.6 : L.SUMP_Y);
+  const sumpHalfW = num(a.sumpHalfW, horizontal ? 8.0 : 5.5);
 
   return {
     eps, deckY, cylinders, count: cylinders.length, zMin, zMax, zMid,
-    layout: a.layout || (cylinders.length === 8 ? 'v8' : cylinders.length === 4 ? 'i4' : 'single'),
+    horizontal, sumpY, sumpHalfW,
+    layout: a.layout || (cylinders.length === 8 ? 'v8'
+      : cylinders.length === 4 ? (horizontal ? 'boxer4' : 'i4') : 'single'),
     twoStroke, cycleDeg: num(a.cycleDeg, twoStroke ? 360 : 720),
     intakePortEnd, exhaustPortEnd, injectorTip, sparkTip, crankCenter,
     jacket: { min: jmin, max: jmax },
@@ -529,6 +601,7 @@ class Fluids {
 
     this._buildGas(A);
     this._buildFlame(A);
+    this._buildReflux(A);
     this._buildFuel(A);
     this._buildExhaust(A);
     this._buildOil(A);
@@ -541,6 +614,8 @@ class Fluids {
     this.knockT = new Float32Array(this.n);
     this.fuelAcc = new Float32Array(this.n);
     this.exhAcc = new Float32Array(this.n);
+    this.diCool = new Float32Array(this.n);      // «свежесть» испарения при прямом впрыске
+    this.refluxAcc = new Float32Array(this.n);   // накопитель частиц обратного выброса
     this.turbI = new Float32Array(this.n);      // сглаженная интенсивность на турбину
     this.turbT = new Float32Array(this.n).fill(700);
     this.scavGate = 0; this.exhGate = 0;        // сглаженные доли открытия окон
@@ -606,6 +681,16 @@ class Fluids {
     }
   }
 
+  /**
+   * Обратный выброс заряда во впускной канал (цикл Аткинсона). Живёт в группе газа:
+   * это не топливо и не выхлоп, а именно часть заряда, вытолкнутая обратно.
+   */
+  _buildReflux(A) {
+    this.reflux = makeSpray(BUDGET.reflux, 0.3, 0.85);
+    this._reg(this.reflux.geo); this._reg(this.reflux.mat);
+    this.gGas.add(this.reflux.pts);
+  }
+
   /** 2. Впрыск топлива. */
   _buildFuel(A) {
     this.fuel = makeSpray(BUDGET.fuel, 0.28, 0.95);
@@ -627,22 +712,33 @@ class Fluids {
       color: 0x7a5418, transparent: true, opacity: 0.28,
       depthWrite: false, blending: THREE.AdditiveBlending,
     }));
-    const sumpY = L.SUMP_Y;
+    const sumpY = A.sumpY;
     const cc = A.crankCenter;
+    /* Точки подачи по гильзе задаются вдоль оси своего ряда: у рядного это высоты
+       9.4…13.8, у оппозита ровно те же числа уезжают в ±X — масло идёт по стенке
+       горизонтального цилиндра, а не «висит» над ним. */
+    const yMid = WALL_BOT_Y + L.STROKE_U * 0.4;                         // ≈ 9.4
+    const yUp = WALL_BOT_Y + L.STROKE_U * 0.9;                          // ≈ 13.8
 
     for (let i = 0; i < A.count; i++) {
       const c = A.cylinders[i];
       const z = c.z, t = c.tilt;
+      const sx = Math.sign(c.axis.x) || 1;      // в какую сторону смотрит горизонтальный ряд
+      /* обратный слив: у вертикального ряда — вдоль стенки вниз, у горизонтального
+         масло стекает по дну картера со стороны своего ряда */
+      const drain = A.horizontal
+        ? new THREE.Vector3(sx * 3.4, sumpY + 0.8, z)
+        : bVec(L.BORE_R * 0.9 + 0.6, 3.0, z, t);
       const pts = [
         new THREE.Vector3(0, sumpY + 0.35, z),                          // маслоприёмник в поддоне
         new THREE.Vector3(-3.2, sumpY + 0.9, z),                        // насос
-        new THREE.Vector3(-5.2, -3.2, z),                               // магистраль в блоке
+        new THREE.Vector3(-5.2, Math.max(-3.2, sumpY + 1.6), z),        // магистраль в блоке
         new THREE.Vector3(cc.x - 1.9, cc.y + 0.3, z),                   // коренная шейка
         bVec(0.4, L.CRANK_R * 0.9, z, t),                               // шатунная шейка ряда
-        bVec(-L.BORE_R * 0.55, 9.4, z, t),                              // разбрызгивание вверх
-        bVec(-L.BORE_R * 0.9, 13.8, z, t),                              // масло на стенке цилиндра
-        bVec(L.BORE_R * 0.9, 12.2, z, t),                               // снимается кольцом
-        bVec(L.BORE_R * 0.9 + 0.6, 3.0, z, t),                          // стекание вдоль ряда
+        bVec(-L.BORE_R * 0.55, yMid, z, t),                             // разбрызгивание вверх
+        bVec(-L.BORE_R * 0.9, yUp, z, t),                               // масло на стенке цилиндра
+        bVec(L.BORE_R * 0.9, yUp - 1.6, z, t),                          // снимается кольцом
+        drain,                                                          // стекание в поддон
         new THREE.Vector3(3.2, sumpY + 0.5, z),                         // возврат в поддон
       ];
       const p = makePath(pts, 180);
@@ -663,9 +759,9 @@ class Fluids {
     // стрелки направления потока
     this.oilArrows = this._makeArrows(this.gOil, paths, 4, 0xffc061, 0.22, 0.62);
 
-    // уровень масла в поддоне
+    // уровень масла в поддоне (у оппозита поддон мелкий, но широкий)
     const half = Math.max(3.2, (A.zMax - A.zMin) / 2 + 3.2);
-    const sumpGeo = this._reg(new THREE.BoxGeometry(11, 0.35, half * 2));
+    const sumpGeo = this._reg(new THREE.BoxGeometry(A.sumpHalfW * 2, 0.35, half * 2));
     const sumpMat = this._reg(new THREE.MeshBasicMaterial({
       color: 0x8a5a18, transparent: true, opacity: 0.45, depthWrite: false,
     }));
@@ -960,32 +1056,47 @@ class Fluids {
     const diesel = f.fuelMode === 'diesel';
     const twoStroke = f.twoStroke !== undefined ? !!f.twoStroke : this.A.twoStroke;
     const cyls = Array.isArray(f.cyl) ? f.cyl : [];
+    /* третья волна: прямой впрыск бензина и обратный выброс цикла Аткинсона */
+    const di = !diesel && !twoStroke && !!f.directInjection;
+    const atk = clamp(num(f.atkinson_deg, 0), 0, 180);
+    /* насколько сильно испарение охлаждает заряд (по физике; запас — 20 K) */
+    const coolK = clamp(num(f.chargeCooling_K, 20) / 25, 0.25, 1.3);
 
     let Tmax = 0;
     for (let i = 0; i < this.n; i++) Tmax = Math.max(Tmax, num(cyls[i] && cyls[i].T_K, 300));
 
     for (let i = 0; i < this.n; i++) {
       const c = cyls[i] || {};
+      const cDeg = num(c.deg, 0);
       const st = {
-        stroke: clamp(Math.round(num(c.stroke, 0)), 0, 3),
-        deg: num(c.deg, 0),
+        /* если кадр не дал номер такта — выводим его из угла цикла (4-тактный) */
+        stroke: clamp(Math.round(num(c.stroke, Math.floor(cDeg / 180))), 0, 3),
+        deg: cDeg,
         xb: clamp(num(c.xb, 0), 0, 1),
         T: clamp(num(c.T_K, 300), 0, 4000),
         p: clamp(num(c.p_bar, 1), 0, 250),
         liftIn: clamp(num(c.liftIn, 0), 0, 1),
         liftEx: clamp(num(c.liftEx, 0), 0, 1),
         crown: crownOf(this.A, i, f),
-        twoStroke,
+        twoStroke, di, atk, coolK,
       };
       if (!Number.isFinite(st.crown)) st.crown = this.A.deckY - 1;
+
+      /* Охлаждение заряда испарением: считаем по углу цикла, а не по секундомеру, —
+         тогда на замедленном показе эффект тянется столько же, сколько на картинке. */
+      const coolTgt = (di && st.stroke === 1 && st.xb <= 0.02 && st.deg > GDI_DEG0)
+        ? clamp((st.deg - GDI_DEG0) / 16, 0, 1) : 0;
+      this.diCool[i] = approach(this.diCool[i], coolTgt, step, 0.05);
 
       this._updateGas(i, st, f, step);
       this._updateFlame(i, st, f, step);
       if (this.vis.fuel && !twoStroke) this._updateFuel(i, st, diesel, rpmF, step);
       if (this.vis.exhaust && !twoStroke) this._updateExhaust(i, st, rpmF, step);
+      if (this.vis.gas && !twoStroke) this._updateReflux(i, st, rpmF, step);
     }
 
     if (this.vis.fuel) stepSpray(this.fuel, step, -2.5, 2.6);
+    if (this.vis.gas && this.reflux) stepSpray(this.reflux, step, -0.4, 2.2);
     if (this.vis.exhaust) stepSpray(this.exh, step, 1.2, 1.5);
     if (this.vis.oil) this._updateOil(step, rpmF);
     if (this.vis.coolant) this._updateCoolant(step, rpmF, Tmax);
@@ -1040,6 +1151,14 @@ class Fluids {
       col.copy(COL.exh);
       op = 0.30 * (1 - k * 0.85);
     }
+    /* Прямой впрыск: пока топливо испаряется в цилиндре, заряд заметно холоднее —
+       сдвигаем цвет к синему и чуть подсвечиваем объём (видно «облако» испарения). */
+    const cool = st.di ? clamp(this.diCool[i] * st.coolK, 0, 1) : 0;
+    if (cool > 0.01) {
+      col.lerp(COL.cooled, cool * 0.55);
+      op = Math.min(0.95, op + 0.10 * cool);
+    }
+
     // белая вспышка детонации подсвечивает и сам объём газа
     const kn = this.knockT[i] > 0 ? clamp(this.knockT[i] / 0.45, 0, 1) : 0;
     if (kn > 0) { col.lerp(COL.white, kn * 0.9); op = Math.min(0.95, op + 0.45 * kn); }
@@ -1104,9 +1223,32 @@ class Fluids {
     }
   }
 
-  /** Впрыск: во впускной канал (бензин) или прямо в камеру у ВМТ (дизель). */
+  /**
+   * Впрыск: во впускной канал (порт-форсунка), прямо в камеру у ВМТ (дизель)
+   * или в цилиндр на такте сжатия (прямой впрыск бензина — конус короче
+   * дизельного и заметно раньше, топливу нужно успеть испариться).
+   */
   _updateFuel(i, st, diesel, rpmF, dt) {
     const A = this.A, c = A.cylinders[i];
+    if (!diesel && st.di) {
+      const near = st.deg > GDI_DEG0 && st.deg < GDI_DEG1;
+      if (!near) return;
+      this.fuelAcc[i] += dt * (170 + 230 * rpmF);
+      const cnt = Math.floor(this.fuelAcc[i]);
+      this.fuelAcc[i] -= cnt;
+      if (cnt <= 0) return;
+      const o = c.diTip;
+      const ax = c.axis;
+      for (let k = 0; k < cnt; k++) {
+        const ang = Math.random() * TAU, spr = 0.30 + Math.random() * 0.30;
+        /* конус вдоль оси своего ряда: у оппозита он ложится горизонтально сам собой */
+        const rx = Math.cos(ang) * spr * 6, rz = Math.sin(ang) * spr * 6;
+        spawn(this.fuel, 1, o.x, o.y, o.z,
+              -ax.x * 6.8 + rx * ax.y, -ax.y * 6.8 - rx * ax.x, rz,
+              0.8, 5.8, COL.gdi, 0.10);
+      }
+      return;
+    }
     if (diesel) {
       // дизель: впрыск в конце такта сжатия, узкий конус из форсунки в головке
       const near = st.deg > 336 && st.deg < 378;
@@ -1132,7 +1274,7 @@ class Fluids {
     const cnt = Math.floor(this.fuelAcc[i]);
     this.fuelAcc[i] -= cnt;
     if (cnt <= 0) return;
-    const o = c.injectorTip, tgt = c.valveInSeat;
+    const o = c.portTip || c.injectorTip, tgt = c.valveInSeat;
     const dx = tgt.x - o.x, dy = tgt.y - o.y, dz = tgt.z - o.z;
     const len = Math.hypot(dx, dy, dz) || 1;
     const v = 11 + 9 * rpmF;
@@ -1158,6 +1300,32 @@ class Fluids {
     this._col.copy(COL.smokeCold).lerp(COL.smokeHot, hot);
     spawn(this.exh, cnt, o.x, o.y, o.z,
           (dx / len) * v, (dy / len) * v, (dz / len) * v, 2.4, 1.3, this._col, 0.4);
+  }
+
+  /**
+   * Обратный выброс при цикле Аткинсона: впускной клапан закрывается позже, и на
+   * такте сжатия часть заряда уходит обратно во впускной канал — встречная струя
+   * от тарелки клапана к патрубку. Интенсивность и скорость растут с углом задержки.
+   */
+  _updateReflux(i, st, rpmF, dt) {
+    if (st.atk < 0.5 || st.stroke !== 1 || st.liftIn < 0.02) return;
+    const c = this.A.cylinders[i];
+    const k = clamp(st.atk / 70, 0, 1);
+    /* к концу задержки клапан почти закрыт, но давление уже выросло — поток не гаснет */
+    this.refluxAcc[i] += dt * (22 + 105 * k) * clamp(st.liftIn * 2.2, 0, 1) * (0.5 + rpmF);
+    const cnt = Math.floor(this.refluxAcc[i]);
+    this.refluxAcc[i] -= cnt;
+    if (cnt <= 0) return;
+
+    const o = c.valveInSeat, tgt = c.intakePortEnd;
+    const dx = tgt.x - o.x, dy = tgt.y - o.y, dz = tgt.z - o.z;
+    const len = Math.hypot(dx, dy, dz) || 1;
+    const v = 3.4 + 6.2 * k + 3.6 * rpmF;
+    /* чем дальше по сжатию, тем «сжатее» цвет вытолкнутого заряда */
+    const kc = clamp((st.deg - 180) / 180, 0, 1);
+    this._colA.copy(COL.reflux).lerp(COL.comp, kc * 0.55);
+    spawn(this.reflux, cnt, o.x, o.y, o.z,
+          (dx / len) * v, (dy / len) * v, (dz / len) * v, 1.5, 3.0, this._colA, 0.28);
   }
 
   /** Масло: движение по замкнутому контуру, скорость пропорциональна оборотам. */
@@ -1444,7 +1612,7 @@ class Fluids {
     this._disposables.clear();
     this.gasMesh = this.gasMat = this.flame = null;
     this.oilPaths = this.coolPaths = this.oilArrows = this.coolArrows = null;
-    this.fuel = this.exh = this.oil = this.cool = null;
+    this.fuel = this.exh = this.oil = this.cool = this.reflux = null;
     this.boost = this.turb = this.scav = null;
     this.boostPaths = this.turbPaths = this.scavPaths = null;
     this.boostArrows = this.boostMain = null;

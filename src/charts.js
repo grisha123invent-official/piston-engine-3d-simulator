@@ -11,6 +11,8 @@
  *
  * Необязательные возможности движка (если их нет — рисуется корректная заглушка):
  *   engine.sweepRpm({from,to,step}) → { rpm, power_kW, torque_Nm, volEff, knockIntegral, boost_bar }
+ *   engine.mapRpmLoad({rpmFrom,rpmTo,rpmSteps,loadSteps}) → { rpm, load, power_kW, torque_Nm,
+ *                       bsfc_g_kWh, effBrake, knockIntegral, best } — карта режимов
  *   engine.cycle.shakeX_N / shakeY_N,  engine.metrics.balance
  *
  *   import { createCharts } from './charts.js';
@@ -483,6 +485,86 @@ function wrapText(ctx, text, maxW) {
   return out;
 }
 
+/* ══════════════ тепловая карта: цвет и изолинии ══════════════ */
+
+/** Опорные цвета шкалы: холодный минимум → горячий максимум. */
+const RAMP = [
+  [ 22,  46,  92],
+  [ 30, 110, 190],
+  [ 38, 172, 162],
+  [124, 198,  86],
+  [246, 200,  66],
+  [240, 128,  48],
+  [198,  46,  46],
+];
+
+/** Цвет по нормированному значению 0…1; нечисловое — нейтральная заливка «нет данных». */
+function rampColor(u, alpha) {
+  if (!num(u)) return 'rgba(90,100,112,.20)';
+  const x = clamp(u, 0, 1) * (RAMP.length - 1);
+  const i = clamp(Math.floor(x), 0, RAMP.length - 2);
+  const k = x - i;
+  const a = RAMP[i], b = RAMP[i + 1];
+  const ch = q => Math.round(a[q] + (b[q] - a[q]) * k);
+  const rgb = `${ch(0)},${ch(1)},${ch(2)}`;
+  return num(alpha) && alpha < 1 ? `rgba(${rgb},${alpha})` : `rgb(${rgb})`;
+}
+
+/**
+ * Диапазон цветовой шкалы с обрезкой длинного хвоста.
+ * У удельного расхода на околонулевой нагрузке значения улетают в десятки тысяч
+ * (двигатель почти не отдаёт мощности) — если красить по всему диапазону,
+ * полезная область 230…600 г/(кВт·ч) сливается в один цвет. Поэтому верх шкалы
+ * берётся по 95-му перцентилю (для «чем меньше, тем лучше» — ещё и не выше 2,5× минимума),
+ * а всё, что выше, красится крайним цветом и честно подписывается как «вне диапазона».
+ * Если хвоста нет (максимум не более чем на 25 % выше потолка), шкала не обрезается.
+ * @returns {{lo:number, hi:number, mn:number, mx:number, clipped:boolean}|null}
+ */
+function colorRange(V, lowIsGood) {
+  const fin = [];
+  for (let i = 0; i < V.length; i++) if (num(V[i])) fin.push(V[i]);
+  if (!fin.length) return null;
+  fin.sort((a, b) => a - b);
+  const n = fin.length;
+  const q = p => fin[clamp(Math.round(p * (n - 1)), 0, n - 1)];
+  const mn = fin[0], mx = fin[n - 1];
+  let hi = lowIsGood ? Math.min(q(0.95), mn > 0 ? mn * 2.5 : q(0.95)) : q(0.98);
+  if (!num(hi) || hi <= mn) hi = mx > mn ? mx : mn + 1;
+  if (mx <= hi * 1.25) hi = mx;                    // хвоста нет — обрезать нечего
+  if (hi <= mn) hi = mn + Math.max(Math.abs(mn) * 0.01, 1);
+  return { lo: mn, hi, mn, mx, clipped: mx > hi * 1.0001 };
+}
+
+/**
+ * Отрезки изолинии уровня level методом марширующих квадратов.
+ * get(i, j) — значение в узле сетки; координаты возвращаются в дробных индексах.
+ * @returns {Array<[number,number,number,number]>} [i0, j0, i1, j1]
+ */
+function contourSegments(get, nx, ny, level) {
+  const out = [];
+  if (!num(level) || nx < 2 || ny < 2) return out;
+  for (let i = 0; i < nx - 1; i++) {
+    for (let j = 0; j < ny - 1; j++) {
+      const v00 = get(i, j), v10 = get(i + 1, j), v11 = get(i + 1, j + 1), v01 = get(i, j + 1);
+      if (!num(v00) || !num(v10) || !num(v11) || !num(v01)) continue;
+      const pts = [];
+      const edge = (ax, ay, va, bx, by, vb) => {
+        if ((va < level) === (vb < level)) return;
+        const d = vb - va;
+        const k = d ? (level - va) / d : 0;
+        pts.push(ax + (bx - ax) * k, ay + (by - ay) * k);
+      };
+      edge(i, j, v00, i + 1, j, v10);
+      edge(i + 1, j, v10, i + 1, j + 1, v11);
+      edge(i + 1, j + 1, v11, i, j + 1, v01);
+      edge(i, j + 1, v01, i, j, v00);
+      if (pts.length >= 4) out.push([pts[0], pts[1], pts[2], pts[3]]);
+      if (pts.length === 8) out.push([pts[4], pts[5], pts[6], pts[7]]);
+    }
+  }
+  return out;
+}
+
 /* ══════════════ стили вкладок (вставляются один раз) ══════════════ */
 
 const CSS = `
@@ -519,6 +601,7 @@ const TABS = [
   { key: 'energy',     label: { ru: 'Энергия',        en: 'Energy' } },
   { key: 'sweep',      label: { ru: 'Характеристика', en: 'Speed curve' } },
   { key: 'balance',    label: { ru: 'Баланс',         en: 'Balance' } },
+  { key: 'map',        label: { ru: 'Карта режимов',  en: 'Engine map' } },
 ];
 
 /** Подпись переключателя логарифмических осей. */
@@ -526,6 +609,37 @@ const OPT_LABEL = { ru: 'лог. оси', en: 'log axes' };
 
 /** Свип не пересчитывается чаще этого интервала (защита от дёрганья ползунков). */
 const SWEEP_MIN_MS = 120;
+
+/**
+ * Переключаемые величины карты режимов. Кнопки рисуются на самом холсте,
+ * поэтому подписи короткие; полное название и единицы уходят в заголовок шкалы.
+ */
+const MAP_METRICS = [
+  {
+    key: 'bsfc', field: 'bsfc_g_kWh', digits: 0,
+    btn:  { ru: 'расход',  en: 'fuel' },
+    name: { ru: 'удельный расход топлива', en: 'brake specific fuel consumption' },
+    unit: { ru: 'г/(кВт·ч)', en: 'g/(kW·h)' },
+    lowIsGood: true,
+  },
+  {
+    key: 'power', field: 'power_kW', digits: 1,
+    btn:  { ru: 'мощность', en: 'power' },
+    name: { ru: 'мощность', en: 'power' },
+    unit: { ru: 'кВт', en: 'kW' },
+    lowIsGood: false,
+  },
+  {
+    key: 'eff', field: 'effBrake', digits: 1, pct: true,
+    btn:  { ru: 'КПД',  en: 'efficiency' },
+    name: { ru: 'эффективный КПД', en: 'brake efficiency' },
+    unit: { ru: '%', en: '%' },
+    lowIsGood: false,
+  },
+];
+
+/** Сетка карты режимов: 24×16 = 384 точки — как в контракте. */
+const MAP_GRID = { rpmFrom: 800, rpmTo: 6000, rpmSteps: 24, loadSteps: 16 };
 
 /**
  * Создаёт блок графиков внутри root.
@@ -592,6 +706,8 @@ export function createCharts(root) {
     disposed: false,
     // кэш внешней скоростной характеристики: считается только при setEngine/invalidate
     sweep: null, sweepPrev: null, sweepAt: -1e9, sweepMs: 0, sweepFail: false, sweepWarned: false,
+    // кэш карты режимов: mapRpmLoad() дорогой, поэтому тот же порядок — только setEngine/invalidate
+    map: null, mapMs: 0, mapFail: false, mapEmpty: false, mapWarned: false, mapMetric: 'bsfc',
   };
 
   /* ── доступ к данным двигателя (везде с проверками) ── */
@@ -2147,6 +2263,524 @@ export function createCharts(root) {
     return null;
   }
 
+  /* ══════════ 8. Карта режимов «обороты × нагрузка» ══════════ */
+
+  /** Описание выбранной величины (переключатель под заголовком). */
+  const mapMetric = () =>
+    MAP_METRICS.find(m => m.key === st.mapMetric) || MAP_METRICS[0];
+
+  /**
+   * Карта режимов с кэшем: mapRpmLoad() стоит до полутора секунд, поэтому
+   * считается ровно один раз на setEngine/invalidate, а не каждый кадр.
+   * Маркер текущей точки живёт в динамическом слое и пересчёта не требует.
+   */
+  function getMap() {
+    const e = st.engine;
+    if (!e || typeof e.mapRpmLoad !== 'function') return null;
+    if (st.map) return st.map;
+    if (st.mapFail || st.mapEmpty) return null;   // повторно не дёргаем сломанный метод
+    const t0 = nowMs();
+    let s = null;
+    try {
+      s = e.mapRpmLoad(Object.assign({}, MAP_GRID));
+    } catch (err) {
+      st.mapFail = true;
+      st.mapMs = nowMs() - t0;
+      if (!st.mapWarned && typeof console !== 'undefined' && console.warn) {
+        st.mapWarned = true;
+        console.warn('[charts] engine.mapRpmLoad() бросил исключение:', err);
+      }
+      return null;
+    }
+    st.mapMs = nowMs() - t0;
+    // пустой ответ — не ошибка метода: сообщение другое, но переспрашивать тоже не будем
+    if (!s || !isArr(s.rpm) || !isArr(s.load)) { st.mapEmpty = true; return null; }
+    st.map = s;
+    return s;
+  }
+
+  /** Текущая нагрузка 0…1: кадр, затем params.throttle (терпит и проценты). */
+  function curLoad() {
+    const p = par();
+    const pick = [st.frame && st.frame.throttle, p.throttle,
+      st.frame && st.frame.load, p.load];
+    for (const v of pick) {
+      if (!num(v) || v < 0) continue;
+      return clamp(v > 1.5 ? v / 100 : v, 0, 1);
+    }
+    return NaN;
+  }
+
+  /**
+   * Значения выбранной величины в единицах подписи (КПД — в процентах).
+   * Ноль и отрицательные у «чем меньше, тем лучше» — это не рекордная экономичность,
+   * а отсутствие данных: на нулевой нагрузке двигатель не отдаёт мощности и
+   * удельный расход не определён. Такие клетки помечаются NaN и красятся серым.
+   */
+  function mapValues(s, m) {
+    const need = s.rpm.length * s.load.length;
+    const src = s[m.field];
+    if (!isArr(src) || src.length < need) return null;
+    let k = 1;
+    if (m.pct) {
+      const [, mx] = extent(src);
+      k = num(mx) && mx > 1.5 ? 1 : 100;          // уже проценты или ещё доли
+    }
+    if (k === 1 && !m.lowIsGood) return src;
+    const out = new Float64Array(src.length);
+    for (let i = 0; i < src.length; i++) {
+      const v = src[i];
+      out[i] = num(v) && (!m.lowIsGood || v > 0) ? v * k : NaN;
+    }
+    return out;
+  }
+
+  /** Дробный индекс значения в возрастающей сетке (вне сетки — NaN). */
+  function gridPos(arr, v) {
+    const n = arr.length;
+    if (!num(v) || n < 2) return NaN;
+    if (v < arr[0] || v > arr[n - 1]) return NaN;
+    for (let i = 1; i < n; i++) {
+      if (!num(arr[i]) || !num(arr[i - 1])) continue;
+      if (v <= arr[i]) {
+        const d = arr[i] - arr[i - 1];
+        return (i - 1) + (d ? (v - arr[i - 1]) / d : 0);
+      }
+    }
+    return n - 1;
+  }
+
+  /** Билинейная выборка из сетки rpmSteps×loadSteps по дробным индексам. */
+  function gridSample(V, nL, fi, fj) {
+    if (!V || !num(fi) || !num(fj)) return NaN;
+    const i0 = Math.floor(fi), j0 = Math.floor(fj);
+    const i1 = i0 + 1, j1 = j0 + 1;
+    const at = (i, j) => {
+      const v = V[i * nL + j];
+      return num(v) ? v : NaN;
+    };
+    const nR = V.length / nL;
+    const ci = clamp(i0, 0, nR - 1), cj = clamp(j0, 0, nL - 1);
+    const di = clamp(i1, 0, nR - 1), dj = clamp(j1, 0, nL - 1);
+    const v00 = at(ci, cj), v10 = at(di, cj), v01 = at(ci, dj), v11 = at(di, dj);
+    const ki = clamp(fi - i0, 0, 1), kj = clamp(fj - j0, 0, 1);
+    if (num(v00) && num(v10) && num(v01) && num(v11)) {
+      return (v00 * (1 - ki) + v10 * ki) * (1 - kj) + (v01 * (1 - ki) + v11 * ki) * kj;
+    }
+    for (const v of [v00, v10, v01, v11]) if (num(v)) return v;   // дырка в данных — ближайшее
+    return NaN;
+  }
+
+  /** Границы клеток по сетке узлов (значения домена, длина n+1). */
+  function cellEdges(arr) {
+    const n = arr.length;
+    const out = new Float64Array(n + 1);
+    for (let i = 1; i < n; i++) out[i] = (arr[i - 1] + arr[i]) / 2;
+    out[0] = arr[0] - (num(out[1]) ? out[1] - arr[0] : 0.5);
+    out[n] = arr[n - 1] + (num(out[n - 1]) ? arr[n - 1] - out[n - 1] : 0.5);
+    return out;
+  }
+
+  /** Кнопки переключения величины: рисуются на холсте, клики ловит canvas. */
+  let mapBtns = [];
+
+  function drawMapButtons(g, xRight, y, maxW) {
+    mapBtns = [];
+    g.save();
+    g.font = font(10);
+    const h = 17, gap = 5;
+    const items = MAP_METRICS.map(m => {
+      const text = t(m.btn);
+      return { key: m.key, text, w: g.measureText(text).width + 14 };
+    });
+    let total = -gap;
+    for (const it of items) total += it.w + gap;
+    if (!num(maxW) || total > maxW) { g.restore(); return false; }
+    let x = xRight - total;
+    for (const it of items) {
+      const on = it.key === st.mapMetric;
+      roundRect(g, x, y, it.w, h, 5);
+      g.fillStyle = on ? 'rgba(88,166,255,.18)' : 'rgba(255,255,255,.04)';
+      g.fill();
+      g.strokeStyle = on ? C.blue : C.grid;
+      g.lineWidth = 1;
+      g.stroke();
+      g.fillStyle = on ? C.blue : C.text;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(it.text, x + it.w / 2, y + h / 2 + 0.5);
+      mapBtns.push({ key: it.key, x, y, w: it.w, h });
+      x += it.w + gap;
+    }
+    g.restore();
+    return true;
+  }
+
+  /** Вертикальная цветовая шкала с делениями и единицами. */
+  function drawColorBar(g, x, y, w, h, v0, v1, fmt, unit, clipped) {
+    const N = 36;
+    g.save();
+    for (let i = 0; i < N; i++) {
+      g.fillStyle = rampColor(i / (N - 1));
+      g.fillRect(x, y + h - (i + 1) * (h / N), w, h / N + 0.8);
+    }
+    g.strokeStyle = C.axis;
+    g.lineWidth = 1;
+    g.strokeRect(x + 0.5, y + 0.5, w, h);
+    g.font = font(9.5);
+    g.fillStyle = C.text;
+    g.textAlign = 'left';
+    g.textBaseline = 'middle';
+    const ticks = niceTicks(v0, v1, h > 150 ? 5 : 3);
+    for (const tv of ticks) {
+      const k = (tv - v0) / ((v1 - v0) || 1);
+      if (k < -0.02 || k > 1.02) continue;
+      if (clipped && k > 0.88) continue;                 // место занято подписью «≥»
+      const ty = y + h - clamp(k, 0, 1) * h;
+      g.strokeStyle = 'rgba(230,237,243,.45)';
+      g.beginPath();
+      g.moveTo(x + w, ty);
+      g.lineTo(x + w + 3, ty);
+      g.stroke();
+      g.fillText(fmt(tv), x + w + 5, ty);
+    }
+    if (clipped) {
+      // верх шкалы обрезан: крайним цветом покрашено всё, что выше
+      g.fillStyle = C.bright;
+      g.fillText(`≥ ${fmt(v1)}`, x + w + 5, y + 5);
+    }
+    if (unit) {
+      g.textAlign = 'right';
+      g.textBaseline = 'alphabetic';
+      g.fillStyle = C.text;
+      g.fillText(unit, Math.min(st.W - 4, x + w + 46), y - 5);
+    }
+    g.restore();
+  }
+
+  function mapStatic(g, W, H) {
+    if (!st.engine || typeof st.engine.mapRpmLoad !== 'function') {
+      drawEmpty(g, W, H, t({
+        ru: 'Карта режимов недоступна: движок не умеет mapRpmLoad()',
+        en: 'Engine map unavailable: engine has no mapRpmLoad()' }));
+      return null;
+    }
+    const s = getMap();
+    if (!s) {
+      drawEmpty(g, W, H, st.mapFail
+        ? t({ ru: 'Карта не построена: engine.mapRpmLoad() вернул ошибку',
+              en: 'Map failed: engine.mapRpmLoad() returned an error' })
+        : t({ ru: 'Карта режимов пуста', en: 'Engine map returned no data' }));
+      return null;
+    }
+    const R = s.rpm, L = s.load, nR = R.length, nL = L.length;
+    const m = mapMetric();
+    const V = mapValues(s, m);
+    if (!V) {
+      drawEmpty(g, W, H, t({
+        ru: `В карте нет величины «${t(m.name)}»`,
+        en: `The map has no “${t(m.name)}” field` }));
+      return null;
+    }
+    const rng = colorRange(V, m.lowIsGood);
+    if (!rng) {
+      drawEmpty(g, W, H, t({ ru: 'В карте нет ни одного числового значения',
+                             en: 'The map contains no numeric values' }));
+      return null;
+    }
+    const v0 = rng.lo, v1 = rng.hi;
+
+    // ── геометрия: поле, строка кнопок, цветовая шкала ──
+    const left = 54;
+    const cbW = 11, cbGap = 11, cbLab = narrow() ? 30 : 46;
+    const right = cbW + cbGap + cbLab;
+    const bottom = narrow() ? 88 : 72;
+    const btnY = 36, btnH = 17;
+    const box = {
+      x: left, y: btnY + btnH + 7, w: W - left - right,
+      h: H - (btnY + btnH + 7) - bottom,
+    };
+    if (box.w < 90 || box.h < 60) {
+      drawEmpty(g, W, H, t({ ru: 'Мало места для карты режимов',
+                             en: 'Not enough space for the engine map' }));
+      return null;
+    }
+    drawMapButtons(g, box.x + box.w, btnY, box.w);
+
+    const exR = cellEdges(R), exL = cellEdges(L);
+    const [r0, r1] = extent(exR);
+    const [l0, l1] = extent(exL);
+    const sx = linScale(r0, r1, box.x, box.x + box.w);
+    const sy = linScale(l0 * 100, l1 * 100, box.y + box.h, box.y);
+
+    // ── клетки тепловой карты ──
+    const idx = (i, j) => i * nL + j;
+    let blankCells = 0;
+    for (let i = 0; i < nR; i++) {
+      const x0 = sx(exR[i]), x1 = sx(exR[i + 1]);
+      if (!num(x0) || !num(x1)) continue;
+      for (let j = 0; j < nL; j++) {
+        const y0 = sy(exL[j] * 100), y1 = sy(exL[j + 1] * 100);
+        if (!num(y0) || !num(y1)) continue;
+        const v = V[idx(i, j)];
+        if (!num(v)) blankCells++;
+        g.fillStyle = rampColor(num(v) ? (v - v0) / (v1 - v0) : NaN);
+        g.fillRect(Math.min(x0, x1), Math.min(y0, y1),
+          Math.abs(x1 - x0) + 0.7, Math.abs(y1 - y0) + 0.7);
+      }
+    }
+
+    // ── зона детонации: штриховка поверх клеток ──
+    const KI = isArr(s.knockIntegral) && s.knockIntegral.length >= nR * nL
+      ? s.knockIntegral : null;
+    let knockCells = 0, knockSx = 0, knockSy = 0;
+    if (KI) {
+      g.save();
+      g.beginPath();
+      for (let i = 0; i < nR; i++) {
+        const x0 = sx(exR[i]), x1 = sx(exR[i + 1]);
+        if (!num(x0) || !num(x1)) continue;
+        for (let j = 0; j < nL; j++) {
+          const k = KI[idx(i, j)];
+          if (!num(k) || k < 1) continue;
+          const y0 = sy(exL[j] * 100), y1 = sy(exL[j + 1] * 100);
+          if (!num(y0) || !num(y1)) continue;
+          g.rect(Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0));
+          knockCells++;
+          knockSx += (x0 + x1) / 2;
+          knockSy += (y0 + y1) / 2;
+        }
+      }
+      if (knockCells) {
+        g.clip();
+        // затемняем и штрихуем: красная заливка потерялась бы на «горячих» клетках
+        g.fillStyle = 'rgba(13,17,23,.30)';
+        g.fillRect(box.x, box.y, box.w, box.h);
+        g.strokeStyle = 'rgba(255,110,110,.9)';
+        g.lineWidth = 1;
+        g.beginPath();
+        for (let d = -Math.ceil(box.h); d < box.w; d += 6) {
+          g.moveTo(box.x + d, box.y + box.h);
+          g.lineTo(box.x + d + box.h, box.y);
+        }
+        g.stroke();
+      }
+      g.restore();
+    }
+
+    // ── изолинии выбранной величины ──
+    const get = (i, j) => {
+      const v = V[idx(i, j)];
+      return num(v) ? v : NaN;
+    };
+    const gx = fi => {
+      const i0 = clamp(Math.floor(fi), 0, nR - 1), i1 = clamp(i0 + 1, 0, nR - 1);
+      const a = R[i0], b = R[i1];
+      if (!num(a)) return NaN;
+      return sx(num(b) ? a + (b - a) * (fi - i0) : a);
+    };
+    const gy = fj => {
+      const j0 = clamp(Math.floor(fj), 0, nL - 1), j1 = clamp(j0 + 1, 0, nL - 1);
+      const a = L[j0], b = L[j1];
+      if (!num(a)) return NaN;
+      return sy((num(b) ? a + (b - a) * (fj - j0) : a) * 100);
+    };
+    const levels = niceTicks(v0, v1, narrow() ? 3 : 6)
+      .filter(v => v > v0 + (v1 - v0) * 0.04 && v < v1 - (v1 - v0) * 0.04);
+    g.save();
+    g.strokeStyle = 'rgba(15,20,26,.55)';
+    g.lineWidth = 1.1;
+    const labelSpots = [];
+    for (const lv of levels) {
+      const segs = contourSegments(get, nR, nL, lv);
+      if (!segs.length) continue;
+      g.beginPath();
+      let bestSeg = null;
+      for (const sg of segs) {
+        const ax = gx(sg[0]), ay = gy(sg[1]), bx = gx(sg[2]), by = gy(sg[3]);
+        if (!num(ax) || !num(ay) || !num(bx) || !num(by)) continue;
+        g.moveTo(ax, ay);
+        g.lineTo(bx, by);
+        if (!bestSeg || ay < bestSeg.y) bestSeg = { x: ax, y: ay };
+      }
+      g.stroke();
+      if (bestSeg) labelSpots.push({ v: lv, x: bestSeg.x, y: bestSeg.y });
+    }
+    g.restore();
+    if (!narrow() && box.h > 110) {
+      g.save();
+      g.font = font(9.5);
+      g.fillStyle = 'rgba(230,237,243,.85)';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      for (const sp of labelSpots) {
+        const x = clamp(sp.x, box.x + 14, box.x + box.w - 14);
+        const y = clamp(sp.y + 7, box.y + 7, box.y + box.h - 7);
+        g.fillText(f(sp.v, m.digits), x, y);
+      }
+      g.restore();
+    }
+
+    // ── сетка и оси поверх заливки ──
+    drawGrid(g, box, sx, sy, niceTicks(r0, r1, narrow() ? 3 : 5), niceTicks(0, 100, 5),
+      v => v.toFixed(0), v => v.toFixed(0),
+      t({ ru: 'обороты n, об/мин', en: 'speed n, rpm' }),
+      t({ ru: 'нагрузка, %', en: 'load, %' }));
+
+    drawColorBar(g, box.x + box.w + cbGap, box.y, cbW, box.h, v0, v1,
+      v => f(v, m.digits), t(m.unit), rng.clipped);
+
+    // ── остров экономичности ──
+    const best = bestPoint(s);
+    if (best) {
+      const bx = sx(best.rpm), by = sy(best.load * 100);
+      if (num(bx) && num(by)) {
+        // тёмная подложка + белое кольцо: отметка видна на любом цвете заливки
+        g.save();
+        g.strokeStyle = 'rgba(13,17,23,.85)';
+        g.lineWidth = 3.6;
+        g.beginPath();
+        g.arc(bx, by, 7, 0, Math.PI * 2);
+        g.stroke();
+        g.strokeStyle = '#fff';
+        g.lineWidth = 1.6;
+        g.beginPath();
+        g.arc(bx, by, 7, 0, Math.PI * 2);
+        g.stroke();
+        g.beginPath();                                   // перекрестье внутри кольца
+        g.moveTo(bx - 4, by); g.lineTo(bx + 4, by);
+        g.moveTo(bx, by - 4); g.lineTo(bx, by + 4);
+        g.lineWidth = 1.1;
+        g.stroke();
+        g.restore();
+        dot(g, bx, by, 3.4, C.green, '#0d1117');
+        if (!narrow()) {
+          tag(g, bx + 10, by - 12,
+            t({ ru: `остров экономичности: ${f(best.bsfc, 0)} г/(кВт·ч)`,
+                en: `economy island: ${f(best.bsfc, 0)} g/(kW·h)` }), C.green, box);
+        }
+      }
+    }
+    if (knockCells && !narrow()) {
+      tag(g, knockSx / knockCells, knockSy / knockCells,
+        t({ ru: 'детонация', en: 'knock' }), C.red, box);
+    }
+
+    // ── легенда и цифры в шапке (в тесноте — короткие подписи) ──
+    const tight = narrow();
+    const items = [
+      { color: 'rgba(15,20,26,.85)',
+        text: tight
+          ? t({ ru: `изолинии, ${t(m.unit)}`, en: `contours, ${t(m.unit)}` })
+          : t({ ru: `изолинии: ${t(m.name)}, ${t(m.unit)}`,
+                en: `contours: ${t(m.name)}, ${t(m.unit)}` }) },
+    ];
+    if (knockCells) {
+      items.push({ color: C.red,
+        text: tight ? t({ ru: 'детонация', en: 'knock' })
+                    : t({ ru: 'зона детонации (интеграл ≥ 1)', en: 'knock zone (integral ≥ 1)' }) });
+    }
+    if (best) {
+      items.push({ color: C.green,
+        text: tight ? t({ ru: 'мин. расход', en: 'min fuel' })
+                    : t({ ru: 'минимальный расход', en: 'minimum fuel consumption' }) });
+    }
+    items.push({ color: '#fff',
+      text: tight ? t({ ru: 'режим', en: 'operating point' })
+                  : t({ ru: 'текущий режим', en: 'current operating point' }) });
+    if (blankCells && !tight) {
+      items.push({ color: 'rgba(120,132,146,.7)',
+        text: t({ ru: 'нет данных: величина не определена',
+                  en: 'no data: the value is not defined' }) });
+    }
+    if (rng.clipped && !tight) {
+      items.push({ color: rampColor(1),
+        text: t({ ru: `вне диапазона шкалы: > ${f(v1, m.digits)} (максимум ${f(rng.mx, m.digits)})`,
+                  en: `off scale: > ${f(v1, m.digits)} (maximum ${f(rng.mx, m.digits)})` }) });
+    }
+    drawLegend(g, box.x + 4, box.y + box.h + 46, items, box.w + right - 4);
+
+    const headBits = [];
+    if (best) {
+      headBits.push(t({
+        ru: `min ${f(best.bsfc, 0)} г/(кВт·ч) при ${Math.round(best.rpm)} об/мин и нагрузке ${f(best.load * 100, 0)} %`,
+        en: `min ${f(best.bsfc, 0)} g/(kW·h) at ${Math.round(best.rpm)} rpm, load ${f(best.load * 100, 0)} %` }));
+    }
+    if (!headerRight(g, 1, headBits.join('  ·  '))) {
+      headerRight(g, 1, t({ ru: `сетка ${nR}×${nL}`, en: `grid ${nR}×${nL}` }));
+    }
+
+    return { box, sx, sy, R, L, nR, nL, V, KI, m, v0, v1, idx };
+  }
+
+  /** Точка минимального расхода: из best движка либо поиском по сетке. */
+  function bestPoint(s) {
+    const b = s.best;
+    if (b && num(b.rpm) && num(b.load)) {
+      return { rpm: b.rpm, load: b.load,
+        bsfc: num(b.bsfc_g_kWh) ? b.bsfc_g_kWh : NaN };
+    }
+    const B = s.bsfc_g_kWh;
+    const nR = s.rpm.length, nL = s.load.length;
+    if (!isArr(B) || B.length < nR * nL) return null;
+    let bi = -1, bv = Infinity;
+    for (let i = 0; i < nR * nL; i++) {
+      if (num(B[i]) && B[i] > 0 && B[i] < bv) { bv = B[i]; bi = i; }
+    }
+    if (bi < 0) return null;
+    const r = s.rpm[Math.floor(bi / nL)], l = s.load[bi % nL];
+    return num(r) && num(l) ? { rpm: r, load: l, bsfc: bv } : null;
+  }
+
+  /** Маркер текущего режима: только выборка из готовой сетки, без пересчёта карты. */
+  function mapDynamic(g, sc) {
+    if (!sc) return;
+    const rpm = curRpm(), load = curLoad();
+    const lines = [];
+    const fi = gridPos(sc.R, rpm);
+    const fj = gridPos(sc.L, load);
+    if (!num(fi) || !num(fj)) {
+      const why = t({ ru: 'текущий режим вне диапазона карты',
+                      en: 'current point is outside the map range' });
+      if (!headerRight(g, 2, why, C.yellow)) drawReadout(g, sc.box, [why], 'left');
+      return;
+    }
+    const x = sc.sx(rpm), y = sc.sy(load * 100);
+    if (!num(x) || !num(y)) return;
+    // перекрестье рисуется дважды: тёмная подложка снизу, белый пунктир поверх —
+    // иначе на жёлтых и красных клетках карты маркер теряется
+    g.save();
+    const cross = () => {
+      g.beginPath();
+      g.moveTo(sc.box.x, y);
+      g.lineTo(sc.box.x + sc.box.w, y);
+      g.moveTo(x, sc.box.y);
+      g.lineTo(x, sc.box.y + sc.box.h);
+      g.stroke();
+    };
+    g.strokeStyle = 'rgba(13,17,23,.75)';
+    g.lineWidth = 3;
+    cross();
+    g.strokeStyle = '#fff';
+    g.lineWidth = 1.2;
+    g.setLineDash([3, 3]);
+    cross();
+    g.restore();
+    dot(g, x, y, 4.2, '#fff', '#0d1117');
+
+    lines.push(rpmText(rpm));
+    lines.push(t({ ru: `нагрузка ${f(load * 100, 0)} %`, en: `load ${f(load * 100, 0)} %` }));
+    const v = gridSample(sc.V, sc.nL, fi, fj);
+    if (num(v)) lines.push(`${t(sc.m.name)}: ${f(v, sc.m.digits)} ${t(sc.m.unit)}`);
+    if (sc.KI) {
+      const k = gridSample(sc.KI, sc.nL, fi, fj);
+      if (num(k) && k >= 1) lines.push(t({ ru: 'детонация', en: 'knock' }));
+    }
+    if (!headerRight(g, 2, lines.join('  ·  '), C.bright)) {
+      drawReadout(g, sc.box, lines, 'left');
+    }
+  }
+
   /* ══════════ конвейер отрисовки ══════════ */
 
   let scales = null;      // геометрия активного графика (для динамического слоя)
@@ -2249,6 +2883,15 @@ export function createCharts(root) {
           scales = balanceStatic(bgCtx, W, H);
           break;
         }
+        case 'map': {
+          const m = mapMetric();
+          drawTitle(bgCtx, t({ ru: 'Карта режимов двигателя', en: 'Engine operating map' }),
+            `${t(m.name)}, ${t(m.unit)}` + (narrow() ? '' : ' · ' +
+              t({ ru: 'обороты × нагрузка, изолинии и зона детонации',
+                  en: 'speed × load, contours and knock zone' })));
+          scales = mapStatic(bgCtx, W, H);
+          break;
+        }
       }
     } catch (err) {
       // график не должен ронять приложение
@@ -2267,6 +2910,7 @@ export function createCharts(root) {
         case 'kinematics': kinDynamic(g, scales); break;
         case 'valves': valvesDynamic(g, curBox, scales); break;
         case 'sweep': sweepDynamic(g, scales); break;
+        case 'map': mapDynamic(g, scales); break;
         case 'energy': case 'balance': break;
       }
     } catch (err) {
@@ -2304,6 +2948,43 @@ export function createCharts(root) {
     render();
   }
 
+  /* ── клики по кнопкам, нарисованным на самом холсте (карта режимов) ── */
+
+  /** Координаты события в тех же пикселях, в которых рисуется статичный слой. */
+  function canvasPos(ev) {
+    if (!ev || !num(ev.clientX) || !num(ev.clientY)) return null;
+    const r = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
+    if (!r) return null;
+    const kx = num(r.width) && r.width > 0 ? st.W / r.width : 1;
+    const ky = num(r.height) && r.height > 0 ? st.H / r.height : 1;
+    return { x: (ev.clientX - (r.left || 0)) * kx, y: (ev.clientY - (r.top || 0)) * ky };
+  }
+
+  /** Кнопка под точкой или null. */
+  function hitMapBtn(ev) {
+    if (st.active !== 'map' || !mapBtns.length) return null;
+    const p = canvasPos(ev);
+    if (!p) return null;
+    for (const b of mapBtns) {
+      if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) return b;
+    }
+    return null;
+  }
+
+  const onCanvasClick = ev => {
+    const b = hitMapBtn(ev);
+    if (b) api.setMapMetric(b.key);
+  };
+  const onCanvasMove = ev => {
+    if (!canvas.style) return;
+    const want = hitMapBtn(ev) ? 'pointer' : '';
+    if (canvas.style.cursor !== want) canvas.style.cursor = want;
+  };
+  if (canvas.addEventListener) {
+    canvas.addEventListener('click', onCanvasClick);
+    canvas.addEventListener('mousemove', onCanvasMove);
+  }
+
   /* ── слежение за размерами ── */
   let ro = null;
   if (typeof ResizeObserver !== 'undefined') {
@@ -2323,6 +3004,7 @@ export function createCharts(root) {
       st.engine = engine || null;
       st.sweep = null; st.sweepPrev = null; st.sweepAt = -1e9;
       st.sweepFail = false; st.sweepWarned = false;
+      st.map = null; st.mapFail = false; st.mapEmpty = false; st.mapWarned = false;
       st.staticDirty = true;
       render();
       return api;
@@ -2333,7 +3015,7 @@ export function createCharts(root) {
       render();
       return api;
     },
-    /** 'pv' | 'torque' | 'kinematics' | 'valves' | 'energy' | 'sweep' | 'balance' */
+    /** 'pv' | 'torque' | 'kinematics' | 'valves' | 'energy' | 'sweep' | 'balance' | 'map' */
     setActive(name) {
       if (!TABS.some(tb => tb.key === name)) return api;
       st.active = name;
@@ -2361,9 +3043,28 @@ export function createCharts(root) {
      * Принудительная перерисовка статичного слоя (после setParams двигателя).
      * Здесь же сбрасывается кэш свипа — только тут и в setEngine он и пересчитывается.
      */
-    invalidate() { st.sweep = null; st.staticDirty = true; render(); return api; },
+    invalidate() {
+      st.sweep = null;
+      st.map = null; st.mapFail = false; st.mapEmpty = false;   // карта тоже пересчитается — но один раз
+      st.staticDirty = true;
+      render();
+      return api;
+    },
+    /**
+     * Величина на карте режимов: 'bsfc' | 'power' | 'eff'.
+     * Переключение только перерисовывает готовую сетку — mapRpmLoad() не вызывается.
+     */
+    setMapMetric(key) {
+      if (!MAP_METRICS.some(m => m.key === key) || key === st.mapMetric) return api;
+      st.mapMetric = key;
+      if (st.active === 'map') { st.staticDirty = true; render(); }
+      return api;
+    },
+    getMapMetric() { return st.mapMetric; },
     /** Служебное: сколько миллисекунд занял последний sweepRpm (0, если свипа не было). */
     getSweepMs() { return st.sweepMs || 0; },
+    /** Служебное: сколько миллисекунд занял последний mapRpmLoad. */
+    getMapMs() { return st.mapMs || 0; },
     dispose() {
       st.disposed = true;
       if (offLang) { offLang(); offLang = null; }
@@ -2371,11 +3072,17 @@ export function createCharts(root) {
       sweepTimer = null;
       if (ro) ro.disconnect();
       if (typeof removeEventListener === 'function') removeEventListener('resize', onWinResize);
+      if (canvas.removeEventListener) {
+        canvas.removeEventListener('click', onCanvasClick);
+        canvas.removeEventListener('mousemove', onCanvasMove);
+      }
       if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
       st.engine = null;
       st.frame = null;
       st.sweep = null;
       st.sweepPrev = null;
+      st.map = null;
+      mapBtns = [];
     },
     /** Служебное: доступ к элементам (интегратору может пригодиться). */
     el: { wrap, canvas, tabs: tabsEl },

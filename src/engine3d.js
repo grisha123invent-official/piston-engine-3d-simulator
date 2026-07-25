@@ -10,6 +10,12 @@
  * двухтактный вариант с окнами в стенке цилиндра, турбокомпрессор с интеркулером,
  * впускные патрубки изменяемой длины.
  *
+ * Третья волна: оппозитная четвёрка boxer4 (горизонтальные ряды ±90°,
+ * раздельные шатунные шейки со сдвигом 180°), балансирные валы под коленвалом,
+ * прямой впрыск бензина (форсунка переезжает в головку), плавная анимация
+ * длины впускного тракта для переменного впуска и профиль впускного кулачка
+ * под цикл Аткинсона.
+ *
  *   import { buildMechanism } from './engine3d.js';
  *   const mech = buildMechanism({ layout: 'v8', eps: 10 });
  *   scene.add(mech.group);
@@ -21,6 +27,78 @@
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { L, layoutSpec, PIN_Y_TDC } from './layout.js';
+import { t, onLangChange } from './i18n.js';
+
+/* ═══════════ подписи деталей: пары { ru, en } ═══════════
+   Строки живут здесь, а не в общем словаре: подпись и деталь читаются рядом.
+   Термины — по единому глоссарию проекта (crank pin, bucket tappet, …). */
+const LBL = {
+  piston:      { ru: 'Поршень',                 en: 'Piston' },
+  ringsComp:   { ru: 'Компрессионные кольца',   en: 'Compression rings' },
+  ringOil:     { ru: 'Маслосъёмное кольцо',     en: 'Oil control ring' },
+  pistonPin:   { ru: 'Поршневой палец',         en: 'Piston pin' },
+  rod:         { ru: 'Шатун',                   en: 'Connecting rod' },
+  crank:       { ru: 'Коленчатый вал',          en: 'Crankshaft' },
+  crankPin:    { ru: 'Шатунная шейка',          en: 'Crank pin' },
+  crankPin2:   { ru: 'Шатунная шейка (2 шатуна)', en: 'Crank pin (2 rods)' },
+  counterw:    { ru: 'Противовес',              en: 'Counterweight' },
+  web:         { ru: 'Щека',                    en: 'Crank web' },
+  mainJournal: { ru: 'Коренная шейка',          en: 'Main journal' },
+  flywheel:    { ru: 'Маховик (метка ВМТ)',     en: 'Flywheel (TDC mark)' },
+  cylinder:    { ru: 'Цилиндр',                 en: 'Cylinder' },
+  head:        { ru: 'Головка блока',           en: 'Cylinder head' },
+  valveIn:     { ru: 'Впускной клапан',         en: 'Intake valve' },
+  valveEx:     { ru: 'Выпускной клапан',        en: 'Exhaust valve' },
+  spring:      { ru: 'Клапанная пружина',       en: 'Valve spring' },
+  tappet:      { ru: 'Толкатель (стакан)',      en: 'Bucket tappet' },
+  camIn:       { ru: 'Распредвал впускной',     en: 'Intake camshaft' },
+  camEx:       { ru: 'Распредвал выпускной',    en: 'Exhaust camshaft' },
+  lobe:        { ru: 'Кулачок',                 en: 'Cam lobe' },
+  sprCrank:    { ru: 'Звёздочка коленвала',     en: 'Crank sprocket' },
+  sprCam:      { ru: 'Звёздочка распредвала',   en: 'Cam sprocket' },
+  chain:       { ru: 'Цепь ГРМ (2:1)',          en: 'Timing chain (2:1)' },
+  portIn:      { ru: 'Впускной канал',          en: 'Intake port' },
+  portEx:      { ru: 'Выпускной канал',         en: 'Exhaust port' },
+  runner:      { ru: 'Впускной патрубок',       en: 'Intake runner' },
+  plenum:      { ru: 'Впускной ресивер',        en: 'Intake plenum' },
+  plenumVee:   { ru: 'Впускной ресивер (в развале)', en: 'Intake plenum (in the vee)' },
+  plug:        { ru: 'Свеча зажигания',         en: 'Spark plug' },
+  injector:    { ru: 'Форсунка',                en: 'Injector' },
+  bankL:       { ru: 'Левый ряд, −45° (цил. 1,3,5,7)',  en: 'Left bank, −45° (cyl. 1,3,5,7)' },
+  bankR:       { ru: 'Правый ряд, +45° (цил. 2,4,6,8)', en: 'Right bank, +45° (cyl. 2,4,6,8)' },
+  bankLBox:    { ru: 'Левый ряд, −90° (цил. 1, 3)',  en: 'Left bank, −90° (cyl. 1, 3)' },
+  bankRBox:    { ru: 'Правый ряд, +90° (цил. 2, 4)', en: 'Right bank, +90° (cyl. 2, 4)' },
+  pinsBoxer:   { ru: 'Раздельные шатунные шейки, сдвиг 180°',
+                 en: 'Separate crank pins, 180° apart' },
+  webShared:   { ru: 'Общая щека соседних колен',   en: 'Web shared by adjacent throws' },
+  opposed:     { ru: 'Противолежащие поршни идут навстречу',
+                 en: 'Opposed pistons move towards each other' },
+  portExh2T:   { ru: 'Выпускное окно',          en: 'Exhaust port' },
+  portTr2T:    { ru: 'Продувочное окно',        en: 'Transfer port' },
+  ductTr:      { ru: 'Продувочный канал',       en: 'Transfer duct' },
+  crankcase:   { ru: 'Кривошипная камера',      en: 'Crankcase' },
+  reed:        { ru: 'Лепестковый клапан',      en: 'Reed valve' },
+  turbine:     { ru: 'Турбина (выпуск)',        en: 'Turbine (exhaust)' },
+  compressor:  { ru: 'Компрессор (впуск)',      en: 'Compressor (intake)' },
+  turboRotor:  { ru: 'Ротор турбокомпрессора',  en: 'Turbo rotor' },
+  wastegate:   { ru: 'Вестгейт',                en: 'Wastegate' },
+  intercooler: { ru: 'Интеркулер',              en: 'Intercooler' },
+  /* ── третья волна ── */
+  balShaft:    { ru: 'Балансирный вал',         en: 'Balance shaft' },
+  balWeight:   { ru: 'Противовес балансирного вала', en: 'Balance shaft weight' },
+  injPort:     { ru: 'Форсунка во впускном канале', en: 'Port fuel injector' },
+  injGdi:      { ru: 'Форсунка непосредственного впрыска (у свечи)',
+                 en: 'Direct injector (next to the spark plug)' },
+};
+
+/** Подпись балансирного вала: кратность и направление вращения — в тексте. */
+function lblBalShaft(ratio, sameAsCrank) {
+  const k = ratio === 2 ? '×2' : '×1';
+  return {
+    ru: `Балансирный вал ${k} (${sameAsCrank ? 'по вращению коленвала' : 'против коленвала'})`,
+    en: `Balance shaft ${k} (${sameAsCrank ? 'same way as the crank' : 'opposite to the crank'})`,
+  };
+}
 
 /* ═══════════ фазы газораспределения и профиль кулачка ═══════════ */
 /* Те же числа, что и в физике: впуск 700→230, выпуск 490→20 (град. цикла). */
@@ -33,6 +111,8 @@ const EX_PEAK  = (EVO + EX_SPAN / 2) % 720;        // 615° — максимум
    значит профиль занимает ±62.5° от вершины кулачка. */
 const IN_HALF = IN_SPAN / 4;
 const EX_HALF = EX_SPAN / 4;
+/* Цикл Аткинсона удлиняет фазу впуска: тот же предел, что и в физике. */
+const ATK_MAX_DEG = 70;
 
 /* Клапаны наклонены (крышевидная камера), чтобы распредвалы разошлись по ширине
    и звёздочки ГРМ (радиус 3.0) не пересекались. */
@@ -73,6 +153,15 @@ const RUNNER_ANG    = 34 * DEG;     // наклон патрубка от гор
 const RUNNER_R      = 0.78;
 const INTAKE_MM_MIN = 150, INTAKE_MM_MAX = 900;
 
+/* Плавность длины впуска: переменный впуск переключает её скачком (700 → 200 мм),
+   а на глаз это должно выглядеть как ход механизма, а не как телепортация. */
+const INTAKE_TAU_S = 0.12;          // за столько «доезжает» остаток пути
+const INTAKE_RATE_MIN = 380;        // мм/с — чтобы хвост не тянулся бесконечно
+const INTAKE_RATE_MAX = 1800;       // мм/с — чтобы большой скачок не выглядел рывком
+
+const nowMs = () => (typeof performance !== 'undefined' && performance.now
+  ? performance.now() : Date.now());
+
 const UP_Y = new THREE.Vector3(0, 1, 0);
 
 /** Точка (x,y) ряда с наклоном tilt → координаты группы механизма. */
@@ -98,10 +187,30 @@ function placeTube(m, a, b, r) {
 
 /** Нормализация имени компоновки: layout важнее, число цилиндров — запасной вариант. */
 function normLayout(layout, cylinders) {
-  if (layout === 'single' || layout === 'i4' || layout === 'v8') return layout;
+  if (layout === 'single' || layout === 'i4' || layout === 'v8' || layout === 'boxer4') return layout;
   const n = num(cylinders, 4);
   return n === 1 ? 'single' : n === 8 ? 'v8' : 'i4';
 }
+
+/* ═══════════ оппозитная компоновка ═══════════
+   У боксёра противолежащие цилиндры сидят на РАЗНЫХ шатунных шейках со сдвигом
+   180° — именно это отличает его от V-образника с развалом 180°, где шейка одна
+   на два шатуна. Раздельные шейки стоят рядом вдоль вала, поэтому и сами
+   цилиндры разнесены на ту же величину (как на настоящем оппозитнике). */
+/* ═══════════ балансирные валы ═══════════ */
+const BAL_X = 3.9;                    // валы по бокам от коленвала
+const BAL_Y = -4.7;                   // и ниже его оси — в картере
+const BAL_W_R = 1.85;                 // радиус противовеса
+
+/* ═══════════ форсунка непосредственного впрыска (бензин) ═══════════
+   Ставится в головку между впускным клапаном (|x| = 2.05) и свечой (x = 0),
+   со сдвигом вдоль оси вала, чтобы не спорить ни с тем, ни с другой. */
+const GDI_X = 1.35, GDI_DZ = 1.55;
+const GDI_TILT = 22 * Math.PI / 180, GDI_TILT_Z = 16 * Math.PI / 180;
+
+const PIN_SPLIT_U = 3.5;              // расстояние между соседними шейками пары
+const WEB_OFF_SPLIT = PIN_SPLIT_U / 2; // щёки: внутренние совпадают → общая щека
+const WEB_OFF = 2.85;                  // обычная щека (рядные и V8)
 
 /**
  * Разбор компоновки на ряды (банки) и цилиндры.
@@ -118,34 +227,58 @@ function normLayout(layout, cylinders) {
 function parseLayout(name) {
   const spec = layoutSpec(name);
   const tilt0 = spec.cyl[0].tilt || 0;
+
+  /* Станции вдоль вала — цилиндры с одинаковым z из таблицы компоновки.
+     Если на станции одна шейка (V8) — колено одно, на нём два шатуна.
+     Если шейки разные (боксёр) — станция расщепляется на два колена,
+     разнесённых вдоль вала на PIN_SPLIT_U; вместе с ними разъезжаются и сами
+     цилиндры, поэтому нижняя головка шатуна остаётся точно на своей шейке. */
+  const stations = [];
+  for (const c of spec.cyl) {
+    let st = stations.find(s => s.z === c.z);
+    if (!st) { st = { z: c.z, pins: [] }; stations.push(st); }
+    if (!st.pins.includes(c.pin)) st.pins.push(c.pin);
+  }
+  const throws = [];
+  const zOfThrow = new Map();                       // «zНом|шейка» → z колена
+  for (const st of stations) {
+    const m = st.pins.length;
+    st.pins.forEach((pin, k) => {
+      const z = st.z + (m > 1 ? (k - (m - 1) / 2) * PIN_SPLIT_U : 0);
+      zOfThrow.set(st.z + '|' + pin, z);
+      throws.push({ z, zNom: st.z, pin, index: 0, split: m > 1,
+                    webOff: m > 1 ? WEB_OFF_SPLIT : WEB_OFF, cyl: [] });
+    });
+  }
+  throws.sort((a, b) => a.z - b.z);
+  throws.forEach((t, i) => {
+    t.index = i;
+    /* поворот колена: мировой угол шейки = θ_кв − pin + tilt₀ */
+    t.rot = (t.pin - tilt0 / DEG) * DEG;
+  });
+
   const banks = [];
-  const throwsZ = [];
   const cyl = spec.cyl.map((c, i) => {
     let b = banks.find(v => Math.abs(v.tilt - c.tilt) < 1e-9);
     if (!b) {
       b = { bank: banks.length, tilt: c.tilt, idx: [], zs: [], phases: [],
-            /* левый (наклонённый в −X) ряд зеркалим, чтобы впуск смотрел в развал */
+            /* левый (наклонённый в −X) ряд зеркалим, чтобы впуск смотрел в развал,
+               а у оппозитника — вверх, как на настоящем боксёре */
             sx: c.tilt < -1e-9 ? -1 : 1 };
       banks.push(b);
     }
-    let t = throwsZ.indexOf(c.z);
-    if (t < 0) { t = throwsZ.length; throwsZ.push(c.z); }
+    const th = throws.find(t => t.zNom === c.z && t.pin === c.pin);
+    th.cyl.push(i);
+    const z = zOfThrow.get(c.z + '|' + c.pin);
     const rec = {
-      index: i, z: c.z, tilt: c.tilt, phase: c.phase, pin: c.pin,
-      bank: b.bank, k: b.idx.length, throw: t,
+      index: i, z, zNom: c.z, tilt: c.tilt, phase: c.phase, pin: c.pin,
+      bank: b.bank, k: b.idx.length, throw: th.index, split: th.split,
       /* смещение эффективного угла относительно угла коленвала, град. */
       effOff: -c.pin + (tilt0 - c.tilt) / DEG,
     };
-    b.idx.push(i); b.zs.push(c.z); b.phases.push(c.phase);
+    b.idx.push(i); b.zs.push(z); b.phases.push(c.phase);
     return rec;
   });
-  const throws = throwsZ.map((z, t) => ({
-    z, index: t,
-    pin: cyl.find(c => c.throw === t).pin,
-    /* поворот колена: мировой угол шейки = θ_кв − pin + tilt₀ */
-    rot: (cyl.find(c => c.throw === t).pin - tilt0 / DEG) * DEG,
-    cyl: cyl.filter(c => c.throw === t).map(c => c.index),
-  }));
   return { name, spec, banks, cyl, throws, n: spec.cylinders, tilt0 };
 }
 
@@ -195,9 +328,10 @@ function beltPath(circles) {
    ═══════════════════════════════════════════════════════════════ */
 
 /**
- * @param {{cylinders?:1|4|8, layout?:'single'|'i4'|'v8', eps?:number, cutaway?:boolean,
- *          labels?:boolean, fuelMode?:string, twoStroke?:boolean, turbo?:boolean,
- *          intercooler?:boolean, intakeLen_mm?:number}} opts
+ * @param {{cylinders?:1|4|8, layout?:'single'|'i4'|'boxer4'|'v8', eps?:number,
+ *          cutaway?:boolean, labels?:boolean, fuelMode?:string, twoStroke?:boolean,
+ *          turbo?:boolean, intercooler?:boolean, intakeLen_mm?:number,
+ *          balanceShafts?:boolean, directInjection?:boolean}} opts
  * @returns {Mechanism}
  */
 export function buildMechanism(opts = {}) {
@@ -215,7 +349,14 @@ export function buildMechanism(opts = {}) {
     intakeLen_mm: clamp(num(opts.intakeLen_mm, L.INTAKE_LEN_REF), INTAKE_MM_MIN, INTAKE_MM_MAX),
     boost_bar: 0,
     chargeT_K: 300,
+    /* ── третья волна ── */
+    balanceShafts: !!opts.balanceShafts,
+    directInjection: !!opts.directInjection,
+    atkinson_deg: clamp(num(opts.atkinson_deg, 0), 0, ATK_MAX_DEG),
   };
+  /* целевая длина впуска: переменный впуск дёргает её на ходу, поэтому
+     видимая длина едет к цели плавно (см. stepIntake) */
+  state.intakeLenTarget_mm = state.intakeLen_mm;
   /* двухтактный вариант — только одноцилиндровый (см. §0 контракта 2) */
   if (state.twoStroke) state.layout = 'single';
   let LO = parseLayout(state.layout);
@@ -245,6 +386,8 @@ export function buildMechanism(opts = {}) {
     runners: [], stacks: [], plenum: null,
     turbo: null, turbineWheel: null, compressorWheel: null, turboShaft: null,
     intercooler: null, wastegate: null, pipes: [],
+    /* ── третья волна ── */
+    balanceShafts: [], balanceGroup: null, injectorsGdi: [], gdiTips: [],
   };
   const anchors = {};
 
@@ -258,6 +401,7 @@ export function buildMechanism(opts = {}) {
   let pipeGeo = null;      // общая единичная труба для всех патрубков
   let banks = [];          // рабочие описания рядов (группа + петля ГРМ)
   let turboSpin = 0, prevCrank = null;
+  let lastUpdateMs = null, intakeStepMs = null;
 
   /* ═══════════ материалы ═══════════ */
   function makeMaterials() {
@@ -374,16 +518,22 @@ export function buildMechanism(opts = {}) {
     return m;
   }
 
-  /** Подпись детали; крепится к объекту, поэтому едет вместе с ним. */
-  function label(text, parent, x, y, z) {
+  /**
+   * Подпись детали; крепится к объекту, поэтому едет вместе с ним.
+   * dict — пара { ru, en } (обычная строка тоже сойдёт); пара остаётся жить
+   * в userData.i18n, чтобы при смене языка переписать только текст.
+   */
+  function label(dict, parent, x, y, z, tag) {
     if (!parent) return null;
     let el;
     if (typeof document !== 'undefined' && document.createElement) {
       el = document.createElement('div');
       el.className = 'lbl';
-      el.textContent = text;
+      el.textContent = t(dict);
     }
     const o = el ? new CSS2DObject(el) : new CSS2DObject();
+    o.userData.i18n = dict;
+    if (tag) o.userData.tag = tag;
     o.position.set(x, y, z);
     o.visible = state.labels;
     if (el) el.style.display = state.labels ? '' : 'none';
@@ -391,6 +541,14 @@ export function buildMechanism(opts = {}) {
     labelObjs.push(o);
     parts.labels.push(o);
     return o;
+  }
+
+  /** Смена языка: переписываем тексты уже существующих подписей, сцену не трогаем. */
+  function refreshLabels() {
+    for (const o of labelObjs) {
+      if (!o || !o.element) continue;
+      o.element.textContent = t(o.userData.i18n);
+    }
   }
 
   /* ═══════════ поршень ═══════════ */
@@ -449,7 +607,12 @@ export function buildMechanism(opts = {}) {
     const zs = LO.throws.map(t => t.z);
     const n = zs.length;
     const mainZ = [zs[0] - 4.1];
-    for (let i = 1; i < n; i++) mainZ.push((zs[i - 1] + zs[i]) / 2);
+    for (let i = 1; i < n; i++) {
+      /* у пары раздельных шеек боксёра между коленами общая щека — коренной
+         шейки там нет, иначе она бы села прямо на щёки */
+      if (LO.throws[i].zNom === LO.throws[i - 1].zNom) continue;
+      mainZ.push((zs[i - 1] + zs[i]) / 2);
+    }
     mainZ.push(zs[n - 1] + 4.1);
     const mainW = n === 1 ? 2.0 : 2.6;
     for (const z of mainZ) zCyl(L.MAIN_R, L.MAIN_R, mainW, 24, mat.steel, g, 0, 0, z);
@@ -471,7 +634,8 @@ export function buildMechanism(opts = {}) {
       th.position.z = t.z;
       g.add(th);
       const wide = t.cyl.length > 1;              // общая шейка на два шатуна (V8)
-      for (const s of [-2.85, 2.85]) {
+      const wo = num(t.webOff, WEB_OFF);          // у раздельных шеек щёки сдвинуты внутрь
+      for (const s of [-wo, wo]) {
         /* щека */
         const web = mesh(new THREE.BoxGeometry(2.9, L.CRANK_R + 2.5, 0.9), mat.dark, th,
                          0, (L.CRANK_R - 1.25) / 2, s);
@@ -484,10 +648,12 @@ export function buildMechanism(opts = {}) {
         cw.userData.kind = 'counterweight';
         if (i === 0 && s < 0) { th.userData.web = web; th.userData.cw = cw; }
       }
-      /* шатунная шейка (широкая, если на ней два шатуна) */
-      const pin = zCyl(L.PIN_R, L.PIN_R, wide ? 5.0 : 4.2, 22, mat.steel, th, 0, L.CRANK_R, 0);
+      /* шатунная шейка: широкая под два шатуна (V8), узкая у раздельных шеек боксёра */
+      const pin = zCyl(L.PIN_R, L.PIN_R, wide ? 5.0 : t.split ? 2.4 : 4.2, 22,
+                       mat.steel, th, 0, L.CRANK_R, 0);
       th.userData.pin = pin;
       th.userData.pinAngle = t.rot;
+      th.userData.throwZ = t.z;
       g.userData['throw' + i] = th;
     });
 
@@ -578,14 +744,22 @@ export function buildMechanism(opts = {}) {
     zCyl(0.62, 0.62, zTo - zFrom, 20, mat.steel, g, 0, 0, (zFrom + zTo) / 2);
 
     const lobeGeo = camLobeGeometry(1.5, half);
+    const lobes = [];
     for (let i = 0; i < zs.length; i++) {
       const lobe = new THREE.Mesh(G(lobeGeo), mat.cast);
       lobe.position.z = zs[i];
       lobe.rotation.z = down + (peak - num(phases[i], 0)) * DEG / 2;
       g.add(lobe);
+      lobes.push(lobe);
       /* опорная шейка рядом с кулачком */
       zCyl(0.8, 0.8, 0.9, 18, mat.steel, g, 0, 0, zs[i] + 2.3);
     }
+    /* профиль впускного кулачка перестраивается под цикл Аткинсона (см. applyAtkinson) */
+    g.userData.lobes = lobes;
+    g.userData.lobeGeo = lobeGeo;
+    g.userData.down = down;
+    g.userData.phases = phases.slice();
+    g.userData.isIntake = isIntake;
     const spr = makeSprocket(L.SPROCKET_CAM_R, 18, 0.85);
     spr.position.z = chainZ;
     g.add(spr);
@@ -712,12 +886,28 @@ export function buildMechanism(opts = {}) {
       mesh(new THREE.ConeGeometry(0.34, 1.1, 14), mat.steel, inj, 0, 0.15);
       g.add(inj); parts.injectorsDirect[gi] = inj;
 
-      /* форсунка во впускном канале (бензин) */
+      /* форсунка во впускном канале (бензин, распределённый впрыск) */
       const pinj = new THREE.Group();
       pinj.position.set(sx * -7.6, 3.4, z);
       const body = mesh(new THREE.ConeGeometry(0.42, 1.7, 12), mat.inject, pinj);
       body.rotation.z = sx * 2.62;
       g.add(pinj); parts.injectorsPort[gi] = pinj;
+
+      /* форсунка непосредственного впрыска бензина: сидит в головке рядом
+         со свечой, между впускным клапаном и центром камеры, и льёт прямо
+         в цилиндр. Включается setDirectInjection(true). */
+      const gdi = new THREE.Group();
+      gdi.position.set(-sx * GDI_X, 0, z + GDI_DZ);   // со стороны впуска, рядом со свечой
+      gdi.rotation.z = sx * GDI_TILT;                 // распылителем к центру камеры
+      gdi.rotation.x = -GDI_TILT_Z;
+      mesh(new THREE.CylinderGeometry(0.4, 0.4, 2.3, 12), mat.inject, gdi, 0, 1.55);
+      mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.4, 12), mat.dark, gdi, 0, 2.9);
+      mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.7, 10), mat.steel, gdi, 0, 0.15);
+      mesh(new THREE.ConeGeometry(0.24, 0.5, 10), mat.steel, gdi, 0, -0.35);
+      g.add(gdi); parts.injectorsGdi[gi] = gdi;
+      /* кончик распылителя в системе головки (y отсчитывается от плоскости головки) */
+      parts.gdiTips[gi] = new THREE.Vector3(0, -0.62, 0)
+        .applyEuler(gdi.rotation).add(gdi.position);
     }
     return g;
   }
@@ -745,6 +935,7 @@ export function buildMechanism(opts = {}) {
       mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.9, 8), mat.steel, plug, 0, -0.35);
       g.add(plug); parts.plugs[gi] = plug;
       parts.injectorsDirect[gi] = null; parts.injectorsPort[gi] = null;
+      parts.injectorsGdi[gi] = null; parts.gdiTips[gi] = null;
     }
     return g;
   }
@@ -858,7 +1049,9 @@ export function buildMechanism(opts = {}) {
       return g;
     }
 
-    const wide = LO.name === 'v8' ? 19.0 : 15.2;
+    /* у оппозитника картер узкий: по бокам сразу начинаются горизонтальные
+       гильзы, а поддон мелкий — отсюда и плоский силуэт */
+    const wide = LO.name === 'v8' ? 19.0 : LO.name === 'boxer4' ? 12.2 : 15.2;
     const ccTop = WALL_BOT_Y, ccBot = L.SUMP_Y - 1.6;
     mesh(new THREE.BoxGeometry(wide, ccTop - ccBot, zLen), mat.block, g, 0, (ccTop + ccBot) / 2, zMid);
     parts.crankcase = mesh(new THREE.BoxGeometry(wide - 1.8, 1.6, zLen * 0.9), mat.dark, g,
@@ -866,6 +1059,95 @@ export function buildMechanism(opts = {}) {
     g.userData.box = { min: new THREE.Vector3(-wide / 2, ccBot, zs[0] - Z_PAD_FRONT),
                        max: new THREE.Vector3(wide / 2, ccTop, zs[zs.length - 1] + Z_PAD_BACK) };
     return g;
+  }
+
+  /* ═══════════ балансирные валы ═══════════ */
+  /**
+   * Два вала с противовесами под коленвалом. Вращаются навстречу друг другу:
+   * левый — против вращения коленвала, правый — вместе с ним. Кратность:
+   * у одноцилиндрового 1× (гасят первый порядок), у рядной четвёрки 2×
+   * (валы Ланчестера, второй порядок). У оппозитника и V8 гасить почти нечего,
+   * поэтому валы там оставлены на 1× — это видно и по подписи.
+   */
+  function balanceRatio() {
+    return LO.name === 'i4' ? 2 : 1;
+  }
+
+  function makeBalanceShafts() {
+    if (state.twoStroke) return null;             // картер герметичный, валам там не место
+    const g = new THREE.Group();
+    g.name = 'balanceShafts';
+    const zs = LO.throws.map(t => t.z);
+    const z0 = zs[0] - 2.8, z1 = zs[zs.length - 1] + 2.8;
+    const ratio = balanceRatio();
+    /* противовесы: у одноцилиндрового один посередине, иначе по краям вала */
+    const wz = zs.length > 1 ? [zs[0], zs[zs.length - 1]] : [0];
+
+    [-1, 1].forEach((sx, k) => {
+      const sh = new THREE.Group();
+      sh.position.set(sx * BAL_X, BAL_Y, 0);
+      /* сам вал */
+      zCyl(0.44, 0.44, z1 - z0, 16, mat.steel, sh, 0, 0, (z0 + z1) / 2);
+      /* эксцентричные противовесы — полудиски, как на коленвале */
+      for (const z of wz) {
+        const cw = mesh(new THREE.CylinderGeometry(BAL_W_R, BAL_W_R, 1.15, 24, 1, false,
+                                                   Math.PI / 2, Math.PI), mat.dark, sh, 0, -0.45, z);
+        cw.rotation.x = Math.PI / 2;
+        cw.rotation.y = Math.PI;
+        cw.userData.kind = 'balanceWeight';
+      }
+      /* светлая метка на тяжёлой стороне: по ней глазом видно и скорость, и сторону вращения */
+      mesh(new THREE.BoxGeometry(0.46, 0.5, z1 - z0), mat.mark, sh,
+           0, -(BAL_W_R + 0.1), (z0 + z1) / 2);
+      /* опорные подшипники по концам */
+      for (const z of [z0 + 0.5, z1 - 0.5]) zCyl(0.78, 0.78, 0.8, 16, mat.cast, sh, 0, 0, z);
+
+      sh.userData = { dir: sx < 0 ? 1 : -1, ratio, sameAsCrank: sx > 0 };
+      g.add(sh);
+      parts.balanceShafts[k] = sh;
+    });
+
+    g.visible = state.balanceShafts;
+    parts.balanceGroup = g;
+    return g;
+  }
+
+  /**
+   * Цикл Аткинсона: впускной клапан закрывается позже на atkinson_deg, значит
+   * и кулачок обязан стать шире и повернуться — иначе клапан открывался бы сам
+   * по себе, без кулачка. Подъём по-прежнему берётся из кадра, здесь только
+   * геометрия профиля: фаза впуска = IN_SPAN + atkinson_deg.
+   */
+  function applyAtkinson() {
+    const atk = clamp(num(state.atkinson_deg, 0), 0, ATK_MAX_DEG);
+    const span = IN_SPAN + atk, half = span / 4, peak = (IVO + span / 2) % 720;
+    for (const cm of parts.camsIn) {
+      if (!cm || !cm.userData.lobes) continue;
+      const geo = camLobeGeometry(1.5, half);
+      const old = cm.userData.lobeGeo;
+      if (old) { geoms.delete(old); old.dispose(); }
+      cm.userData.lobeGeo = G(geo);
+      cm.userData.lobes.forEach((lobe, i) => {
+        lobe.geometry = geo;
+        lobe.rotation.z = cm.userData.down + (peak - num(cm.userData.phases[i], 0)) * DEG / 2;
+      });
+    }
+    anchors.atkinson_deg = atk;
+  }
+
+  /** Показать/спрятать узел балансирных валов вместе с их подписями. */
+  function applyBalanceShafts() {
+    const on = state.balanceShafts && !!parts.balanceGroup;
+    if (parts.balanceGroup) parts.balanceGroup.visible = on;
+    for (const o of labelObjs) {
+      if (!o || o.userData.tag !== 'balance') continue;
+      o.visible = state.labels && on;
+      if (o.element && o.element.style) o.element.style.display = o.visible ? '' : 'none';
+    }
+    anchors.balanceShafts = {
+      on, ratio: balanceRatio(), x: BAL_X, y: BAL_Y,
+      dirs: parts.balanceShafts.map(s => (s ? s.userData.dir : 0)),
+    };
   }
 
   /* ═══════════ привод ГРМ: цепь (по петле на ряд) ═══════════ */
@@ -1110,14 +1392,48 @@ export function buildMechanism(opts = {}) {
       for (const e of ends) c.add(e);
       c.multiplyScalar(1 / ends.length);
       const zs = ends.map(e => e.z);
-      const zLen = Math.max(4.5, Math.max(...zs) - Math.min(...zs) + 5.0);
+      const zSpan = Math.max(...zs) - Math.min(...zs);
+      /* у оппозитника патрубки обоих рядов приходят сверху, но разъезжаются
+         по ширине: ресивер становится перекидной трубой поперёк двигателя —
+         широкой по X и узкой вдоль вала, иначе он накрыл бы мотор крышкой */
+      const box = LO.name === 'boxer4';
+      const zLen = box ? clamp(zSpan * 0.34 + 3.0, 4.5, 11.0) : Math.max(4.5, zSpan + 5.0);
+      const xs = ends.map(e => e.x);
+      const sxScale = box ? Math.max(1, (Math.max(...xs) - Math.min(...xs) + 3.0) / 5.2) : 1;
       parts.plenum.position.copy(c);
-      parts.plenum.scale.set(1, 1, zLen);
+      parts.plenum.scale.set(sxScale, 1, zLen);
       parts.plenum.visible = true;
     }
     anchors.intakeLen_mm = state.intakeLen_mm;
+    anchors.intakeLenTarget_mm = state.intakeLenTarget_mm;
     anchors.intakeRunnerLen_u = lenU;
     anchors.plenum = parts.plenum ? parts.plenum.position.clone() : null;
+  }
+
+  /**
+   * Шаг анимации длины впускного тракта: видимая длина едет к целевой
+   * экспоненциально и с ограничением скорости, поэтому переключение
+   * переменного впуска на ходу выглядит как движение заслонки, а не как рывок.
+   */
+  function stepIntake() {
+    const target = state.intakeLenTarget_mm;
+    const cur = state.intakeLen_mm;
+    const t = nowMs();
+    const dt = clamp((t - (intakeStepMs === null ? t : intakeStepMs)) / 1000, 0, 0.1);
+    intakeStepMs = t;
+    const diff = target - cur;
+    if (Math.abs(diff) < 1e-9) return;
+    if (Math.abs(diff) <= 0.5) {                 // остаток меньше полумиллиметра — дотягиваем
+      state.intakeLen_mm = target;
+    } else {
+      if (dt <= 0) return;
+      /* скорость: пропорциональна остатку (мягкое торможение у цели),
+         но зажата снизу и сверху — отсюда и плавность, и конечное время хода */
+      const rate = clamp(Math.abs(diff) / INTAKE_TAU_S, INTAKE_RATE_MIN, INTAKE_RATE_MAX);
+      state.intakeLen_mm = cur + Math.sign(diff) * Math.min(Math.abs(diff), rate * dt);
+    }
+    applyIntakeLength();
+    layoutTurboPipes();
   }
 
   /* ═══════════ подписи ═══════════ */
@@ -1125,72 +1441,95 @@ export function buildMechanism(opts = {}) {
     const z0 = LO.cyl[0].z;
     const sx0 = banks[0] ? banks[0].sx : 1;
     const p0 = parts.pistons[0], r0 = parts.rods[0];
-    label('Поршень', p0, L.BORE_R + 1.2, 0.4, 0);
-    label('Компрессионные кольца', p0, -L.BORE_R - 1.4, L.PISTON_TOP_OFF - 1.3, 0);
-    label('Маслосъёмное кольцо', p0, -L.BORE_R - 1.4, L.PISTON_TOP_OFF - 2.9, 0);
-    label('Поршневой палец', p0, 0, -1.5, 2.6);
-    label('Шатун', r0, 1.9, -L.ROD_L * 0.45, 0);
-    label('Коленчатый вал', parts.crank, -6.4, -1.4, z0);
+    label(LBL.piston, p0, L.BORE_R + 1.2, 0.4, 0);
+    label(LBL.ringsComp, p0, -L.BORE_R - 1.4, L.PISTON_TOP_OFF - 1.3, 0);
+    label(LBL.ringOil, p0, -L.BORE_R - 1.4, L.PISTON_TOP_OFF - 2.9, 0);
+    label(LBL.pistonPin, p0, 0, -1.5, 2.6);
+    label(LBL.rod, r0, 1.9, -L.ROD_L * 0.45, 0);
+    label(LBL.crank, parts.crank, -6.4, -1.4, z0);
     const th0 = parts.crank && parts.crank.userData.throw0;
     if (th0) {
-      label(LO.name === 'v8' ? 'Шатунная шейка (2 шатуна)' : 'Шатунная шейка',
-            th0, 2.2, L.CRANK_R, 0);
-      label('Противовес', th0, -3.4, -1.6, 0);
-      label('Щека', th0, 0, 2.6, -3.4);
+      label(LO.name === 'v8' ? LBL.crankPin2 : LBL.crankPin, th0, 2.2, L.CRANK_R, 0);
+      label(LBL.counterw, th0, -3.4, -1.6, 0);
+      label(LBL.web, th0, 0, 2.6, -(LO.throws[0].webOff + 0.55));
     }
-    label('Коренная шейка', parts.crank, 0, -1.9, 0);
-    label('Маховик (метка ВМТ)', parts.flywheel, 0, L.FLYWHEEL_R + 0.9, 0);
-    label('Цилиндр', parts.walls[0], -L.BORE_R - 1.6, 0.32, 0);
-    label('Головка блока', parts.heads[0], -9.6, 1.6, z0);
+    /* ── оппозитная: раздельные шейки и общая щека пары ── */
+    if (LO.name === 'boxer4') {
+      const th1 = parts.crank && parts.crank.userData.throw1;
+      if (th1) {
+        label(LBL.pinsBoxer, th1, 2.4, L.CRANK_R + 0.6, 0);
+        label(LBL.webShared, th1, -2.0, 3.4, -WEB_OFF_SPLIT);
+      }
+    }
+    label(LBL.mainJournal, parts.crank, 0, -1.9, 0);
+    label(LBL.flywheel, parts.flywheel, 0, L.FLYWHEEL_R + 0.9, 0);
+    label(LBL.cylinder, parts.walls[0], -L.BORE_R - 1.6, 0.32, 0);
+    label(LBL.head, parts.heads[0], -9.6, 1.6, z0);
 
     if (!state.twoStroke) {
-      label('Впускной клапан', parts.valvesIn[0], -sx0 * 1.4, 1.0, 0);
-      label('Выпускной клапан', parts.valvesEx[0], sx0 * 1.4, 1.0, 0);
-      label('Клапанная пружина', parts.valvesIn[0], -sx0 * 1.6, 2.4, 0);
-      label('Толкатель (стакан)', parts.valvesEx[0], sx0 * 1.6, CAM_AX - 1.0, 0);
-      label('Распредвал впускной', parts.camsIn[0], -2.6, 1.6, z0);
-      label('Распредвал выпускной', parts.camsEx[0], 2.6, 1.6, z0);
-      label('Кулачок', parts.camsEx[0], 0, -2.6, z0);
-      label('Звёздочка коленвала', parts.sprocketCrank, 0, -L.SPROCKET_CRANK_R - 1.0, 0);
-      label('Звёздочка распредвала', parts.sprocketIn, -L.SPROCKET_CAM_R - 1.2, 0.6, 0);
-      label('Цепь ГРМ (2:1)', parts.heads[0], -sx0 * (CAM_X + 2.0), L.CAM_DY - 7.5,
+      label(LBL.valveIn, parts.valvesIn[0], -sx0 * 1.4, 1.0, 0);
+      label(LBL.valveEx, parts.valvesEx[0], sx0 * 1.4, 1.0, 0);
+      label(LBL.spring, parts.valvesIn[0], -sx0 * 1.6, 2.4, 0);
+      label(LBL.tappet, parts.valvesEx[0], sx0 * 1.6, CAM_AX - 1.0, 0);
+      label(LBL.camIn, parts.camsIn[0], -2.6, 1.6, z0);
+      label(LBL.camEx, parts.camsEx[0], 2.6, 1.6, z0);
+      label(LBL.lobe, parts.camsEx[0], 0, -2.6, z0);
+      label(LBL.sprCrank, parts.sprocketCrank, 0, -L.SPROCKET_CRANK_R - 1.0, 0);
+      label(LBL.sprCam, parts.sprocketIn, -L.SPROCKET_CAM_R - 1.2, 0.6, 0);
+      label(LBL.chain, parts.heads[0], -sx0 * (CAM_X + 2.0), L.CAM_DY - 7.5,
             banks[0] ? banks[0].chainZ : CHAIN_Z_SINGLE);
-      label('Впускной канал', parts.heads[0], -sx0 * 9.4, 3.4, z0);
-      label('Выпускной канал', parts.heads[0], sx0 * 9.4, 3.4, z0);
-      label('Впускной патрубок', parts.runners[0] && parts.runners[0].group, 1.3, 2.2, 0);
-      label('Впускной ресивер' + (LO.name === 'v8' ? ' (в развале)' : ''), parts.plenum, 0, 1.5, 0);
+      label(LBL.portIn, parts.heads[0], -sx0 * 9.4, 3.4, z0);
+      label(LBL.portEx, parts.heads[0], sx0 * 9.4, 3.4, z0);
+      label(LBL.runner, parts.runners[0] && parts.runners[0].group, 1.3, 2.2, 0);
+      label(LO.name === 'v8' ? LBL.plenumVee : LBL.plenum, parts.plenum, 0, 1.5, 0);
     }
-    label('Свеча зажигания', parts.plugs[0], 0.4, 3.4, 0);
-    label('Форсунка', parts.injectorsDirect[0], 0.4, 3.6, 0);
+    label(LBL.plug, parts.plugs[0], 0.4, 3.4, 0);
+    label(LBL.injector, parts.injectorsDirect[0], 0.4, 3.6, 0);
+    label(LBL.injPort, parts.injectorsPort[0], -sx0 * 1.1, 1.3, 0);
+    label(LBL.injGdi, parts.injectorsGdi[0], -sx0 * 1.2, 3.5, 0);
 
-    /* ── V8: подписи рядов ── */
+    /* ── подписи рядов ── */
     if (LO.name === 'v8' && banks.length > 1) {
-      label('Левый ряд, −45° (цил. 1,3,5,7)', banks[0].group, -6.0, L.deckY(state.eps) + 6.5, z0);
-      label('Правый ряд, +45° (цил. 2,4,6,8)', banks[1].group, 6.0, L.deckY(state.eps) + 6.5, z0);
+      label(LBL.bankL, banks[0].group, -6.0, L.deckY(state.eps) + 6.5, z0);
+      label(LBL.bankR, banks[1].group, 6.0, L.deckY(state.eps) + 6.5, z0);
     }
+    if (LO.name === 'boxer4' && banks.length > 1) {
+      /* ряды горизонтальные: подпись висит на конце ряда, в его же системе */
+      label(LBL.bankLBox, banks[0].group, 0, L.deckY(state.eps) + 3.0, banks[0].zs[0] - 3.0);
+      label(LBL.bankRBox, banks[1].group, 0, L.deckY(state.eps) + 3.0, banks[1].zs[0] - 3.0);
+      label(LBL.opposed, parts.pistons[0], 0, -2.2, -3.2);
+    }
+
+    /* ── балансирные валы ── */
+    parts.balanceShafts.forEach((sh) => {
+      if (!sh) return;
+      label(lblBalShaft(sh.userData.ratio, sh.userData.sameAsCrank), sh,
+            0, -(BAL_W_R + 1.0), sh.userData.dir > 0 ? -2.2 : 2.2, 'balance');
+      label(LBL.balWeight, sh, 0, 0.9, LO.throws[0].z, 'balance');
+    });
 
     /* ── двухтактный: окна и картер ── */
     for (const p of parts.portsExhaust)
-      label('Выпускное окно', p.mesh, Math.sin(p.theta) * 2.4, 0.6, Math.cos(p.theta) * 2.4);
+      label(LBL.portExh2T, p.mesh, Math.sin(p.theta) * 2.4, 0.6, Math.cos(p.theta) * 2.4);
     if (parts.portsTransfer[0]) {
       const p = parts.portsTransfer[0];
-      label('Продувочное окно', p.mesh, Math.sin(p.theta) * 2.6, 0.6, Math.cos(p.theta) * 2.6);
+      label(LBL.portTr2T, p.mesh, Math.sin(p.theta) * 2.6, 0.6, Math.cos(p.theta) * 2.6);
       /* канал — масштабированная труба, поэтому подпись вешаем без смещения */
-      label('Продувочный канал', parts.transferDucts[0], 0, 0, 0);
+      label(LBL.ductTr, parts.transferDucts[0], 0, 0, 0);
     }
     if (state.twoStroke) {
-      label('Кривошипная камера', parts.crankcaseShell, -0.4, -4.4, 0);
-      label('Лепестковый клапан', parts.reed, -1.6, 1.8, 0);
+      label(LBL.crankcase, parts.crankcaseShell, -0.4, -4.4, 0);
+      label(LBL.reed, parts.reed, -1.6, 1.8, 0);
     }
 
     /* ── наддув ── */
     if (parts.turbo) {
-      label('Турбина (выпуск)', parts.turbo, 0, 3.2, 1.5);
-      label('Компрессор (впуск)', parts.turbo, 0, -3.4, -1.5);
-      label('Ротор турбокомпрессора', parts.turboShaft, 0, 0.9, 0);
-      label('Вестгейт', parts.wastegate, 1.2, 1.4, 0);
+      label(LBL.turbine, parts.turbo, 0, 3.2, 1.5);
+      label(LBL.compressor, parts.turbo, 0, -3.4, -1.5);
+      label(LBL.turboRotor, parts.turboShaft, 0, 0.9, 0);
+      label(LBL.wastegate, parts.wastegate, 1.2, 1.4, 0);
     }
-    label('Интеркулер', parts.intercooler, 0, 3.4, 0);
+    label(LBL.intercooler, parts.intercooler, 0, 3.4, 0);
   }
 
   /* ═══════════ сборка / разборка ═══════════ */
@@ -1240,6 +1579,11 @@ export function buildMechanism(opts = {}) {
     group.add(cse);
     anchors.crankcaseBox = cse.userData.box;
 
+    /* балансирные валы: узел строится всегда (кроме двухтактного),
+       показывается по setBalanceShafts */
+    const bal = makeBalanceShafts();
+    if (bal) group.add(bal);
+
     /* впускной ресивер (у V8 — в развале, на концах патрубков) */
     if (!state.twoStroke) {
       parts.plenum = mesh(new THREE.BoxGeometry(5.2, 3.0, 1), mat.runner, group);
@@ -1265,6 +1609,8 @@ export function buildMechanism(opts = {}) {
     applyIntakeLength();
     layoutTurboPipes();
     makeLabels();
+    applyBalanceShafts();
+    if (state.atkinson_deg > 0) applyAtkinson();
   }
 
   function teardown() {
@@ -1286,6 +1632,8 @@ export function buildMechanism(opts = {}) {
     parts.springsIn.length = 0; parts.springsEx.length = 0;
     parts.chainLinks.length = 0; parts.plugs.length = 0;
     parts.injectorsDirect.length = 0; parts.injectorsPort.length = 0;
+    parts.injectorsGdi.length = 0; parts.gdiTips.length = 0;
+    parts.balanceShafts.length = 0; parts.balanceGroup = null;
     parts.labels.length = 0;
     parts.banks.length = 0; parts.heads.length = 0; parts.blocks.length = 0;
     parts.camsIn.length = 0; parts.camsEx.length = 0; parts.chains.length = 0;
@@ -1311,11 +1659,18 @@ export function buildMechanism(opts = {}) {
     for (const b of parts.blocks) { if (!b) continue; b.scale.y = h; b.position.y = WALL_BOT_Y + h / 2; }
   }
 
+  /**
+   * Куда воткнута форсунка. Дизель — всегда в головку (штатная форсунка по центру).
+   * Бензин: при setDirectInjection(false) во впускном канале, при true —
+   * в головке рядом со свечой, отсюда и подпись меняется.
+   */
   function applyFuelMode(mode) {
     const diesel = mode === 'diesel';
+    const gdi = state.directInjection && !diesel;
     for (const p of parts.plugs) if (p) p.visible = !diesel;
     for (const p of parts.injectorsDirect) if (p) p.visible = diesel;
-    for (const p of parts.injectorsPort) if (p) p.visible = !diesel;
+    for (const p of parts.injectorsGdi) if (p) p.visible = gdi;
+    for (const p of parts.injectorsPort) if (p) p.visible = !diesel && !gdi;
   }
 
   /** Доля хода поршня цилиндра i из кадра (или из угла коленвала). */
@@ -1338,10 +1693,15 @@ export function buildMechanism(opts = {}) {
     const sx0 = banks[0] ? banks[0].sx : 1;
     const z0 = LO.cyl[0].z;
 
+    const gdiOn = state.directInjection && state.fuelMode !== 'diesel';
     const cyls = LO.cyl.map(c => {
       const i = c.index, z = c.z, t = c.tilt;
       const sx = banks[c.bank] ? banks[c.bank].sx : 1;
       const axis = new THREE.Vector3(Math.sin(t), Math.cos(t), 0);   // ось цилиндра «вверх»
+      const gt = parts.gdiTips[i];
+      /* кончик форсунки непосредственного впрыска (в головке, у свечи) */
+      const gdiTip = gt ? bankVec(gt.x, deck + gt.y, gt.z, t) : bankVec(0, deck - 0.6, z, t);
+      const portTip = bankVec(sx * -6.9, deck + 2.7, z, t);
       return {
         index: i, x: 0, z,
         bankTilt: t, bank: c.bank, mirror: sx, axis,
@@ -1353,7 +1713,11 @@ export function buildMechanism(opts = {}) {
         intakePortEnd:  bankVec(sx * -8.9, deck + 2.6, z, t),
         exhaustPortEnd: bankVec(sx * 8.9, deck + 2.6, z, t),
         sparkTip:       bankVec(0, deck - 0.8, z, t),
-        injectorTip:    bankVec(sx * -6.9, deck + 2.7, z, t),   // порт-форсунка (бензин)
+        /* активная форсунка: во впускном канале либо в головке (прямой впрыск) */
+        injectorTip:    gdiOn ? gdiTip.clone() : portTip.clone(),
+        portInjectorTip: portTip,                               // порт-форсунка (бензин)
+        gdiInjectorTip: gdiTip,                                 // прямой впрыск (бензин)
+        directInjection: gdiOn,
         dieselInjectorTip: bankVec(0, deck - 0.4, z, t),        // прямой впрыск (дизель)
         valveInSeat:    bankVec(sx * L.VALVE_X_IN, deck, z, t),
         valveExSeat:    bankVec(sx * L.VALVE_X_EX, deck, z, t),
@@ -1405,9 +1769,21 @@ export function buildMechanism(opts = {}) {
       cycleDeg: state.twoStroke ? 360 : 720,
       bankTilt: LO.cyl.map(c => c.tilt),
       banks: LO.banks.map(b => ({ bank: b.bank, tilt: b.tilt, mirror: b.sx, cyl: b.idx.slice() })),
+      /* раздельные шатунные шейки: у боксёра их четыре, у V8 — по одной на пару */
+      crankThrows: LO.throws.map(t => ({ index: t.index, z: t.z, pin: t.pin,
+                                         split: !!t.split, cyl: t.cyl.slice() })),
+      opposed: LO.name === 'boxer4',
+      balanceShafts: {
+        on: state.balanceShafts && !!parts.balanceGroup,
+        ratio: balanceRatio(), x: BAL_X, y: BAL_Y,
+        dirs: parts.balanceShafts.map(s => (s ? s.userData.dir : 0)),
+      },
       intakePortEnd: cyls[0].intakePortEnd,
       exhaustPortEnd: cyls[0].exhaustPortEnd,
       injectorTip: cyls[0].injectorTip,
+      portInjectorTip: cyls[0].portInjectorTip,
+      gdiInjectorTip: cyls[0].gdiInjectorTip,
+      directInjection: gdiOn,
       dieselInjectorTip: cyls[0].dieselInjectorTip,
       sparkTip: cyls[0].sparkTip,
       crankCenter: new THREE.Vector3(0, 0, 0),
@@ -1443,6 +1819,17 @@ export function buildMechanism(opts = {}) {
   /* ═══════════ покадровое обновление ═══════════ */
   function update(frame) {
     if (!frame || !parts.crank) return;
+    lastUpdateMs = nowMs();
+    /* режимы, которые могут прийти прямо в кадре (переменный впуск, прямой
+       впрыск, балансирные валы) — принимаем только явные булевы значения */
+    if (typeof frame.balanceShafts === 'boolean' && frame.balanceShafts !== state.balanceShafts)
+      setBalanceShafts(frame.balanceShafts);
+    if (typeof frame.directInjection === 'boolean' && frame.directInjection !== state.directInjection)
+      setDirectInjection(frame.directInjection);
+    if (Number.isFinite(frame.intakeLenNow_mm)) setIntakeLength(frame.intakeLenNow_mm);
+    if (Number.isFinite(frame.atkinson_deg)) setAtkinson(frame.atkinson_deg);
+    stepIntake();
+
     const cycle = state.twoStroke ? 360 : num(frame.cycleDeg, 720);
     const deg = ((num(frame.deg, 0) % 720) + 720) % 720;
     const crankDeg = num(frame.crankDeg, deg % 360);
@@ -1486,6 +1873,15 @@ export function buildMechanism(opts = {}) {
       for (const cm of parts.camsEx) if (cm) cm.rotation.z = camRot;
       /* цепь бежит вместе со звёздочкой коленвала */
       layoutChain(-rad * L.SPROCKET_CRANK_R);
+    }
+
+    /* балансирные валы: коленвал крутится как −rad, поэтому вал с dir = +1
+       идёт против него, а с dir = −1 — вместе; кратность 1× или 2× */
+    if (parts.balanceGroup && parts.balanceGroup.visible) {
+      for (const sh of parts.balanceShafts) {
+        if (!sh) continue;
+        sh.rotation.z = sh.userData.dir * sh.userData.ratio * rad;
+      }
     }
 
     updateTurbo(frame, crankDeg);
@@ -1563,7 +1959,7 @@ export function buildMechanism(opts = {}) {
     build();
   }
 
-  /** Компоновка: 'single' | 'i4' | 'v8'. */
+  /** Компоновка: 'single' | 'i4' | 'boxer4' | 'v8'. */
   function setLayout(name) {
     const v = normLayout(name, name);
     if (v === state.layout && !(state.twoStroke && v !== 'single')) return;
@@ -1603,13 +1999,53 @@ export function buildMechanism(opts = {}) {
     updateAnchors();
   }
 
-  /** Длина впускных патрубков, мм (150…900) — меняется на глазах. */
-  function setIntakeLength(mm) {
+  /**
+   * Длина впускных патрубков, мм (150…900) — меняется на глазах.
+   * По умолчанию едет к новой длине плавно (за ~0,3 с): переменный впуск
+   * дёргает её прямо на работающем двигателе. `immediate` ставит сразу.
+   */
+  function setIntakeLength(mm, immediate) {
     const v = clamp(num(mm, L.INTAKE_LEN_REF), INTAKE_MM_MIN, INTAKE_MM_MAX);
-    if (Math.abs(v - state.intakeLen_mm) < 1e-6) return;
-    state.intakeLen_mm = v;
-    applyIntakeLength();
-    layoutTurboPipes();
+    if (Math.abs(v - state.intakeLenTarget_mm) < 1e-6) return;
+    state.intakeLenTarget_mm = v;
+    anchors.intakeLenTarget_mm = v;
+    /* если кадры не идут (сцена на паузе), плавно ехать некому — ставим сразу */
+    const idle = lastUpdateMs === null || nowMs() - lastUpdateMs > 400;
+    if (immediate || idle) {
+      state.intakeLen_mm = v;
+      intakeStepMs = null;
+      applyIntakeLength();
+      layoutTurboPipes();
+    }
+  }
+
+  /**
+   * Задержка закрытия впускного клапана (цикл Аткинсона), град. цикла 0…70.
+   * Меняет профиль впускного кулачка, чтобы он совпадал с подъёмом из кадра.
+   */
+  function setAtkinson(deg) {
+    const v = clamp(num(deg, 0), 0, ATK_MAX_DEG);
+    if (Math.abs(v - state.atkinson_deg) < 0.25) return;
+    state.atkinson_deg = v;
+    applyAtkinson();
+  }
+
+  /** Балансирные валы под коленвалом (валы Ланчестера у рядной четвёрки). */
+  function setBalanceShafts(on) {
+    state.balanceShafts = !!on;
+    applyBalanceShafts();
+  }
+
+  /**
+   * Прямой впрыск бензина: форсунка переезжает из впускного канала в головку,
+   * рядом со свечой. У дизеля форсунка и так в головке — режим на него не влияет.
+   */
+  function setDirectInjection(on) {
+    const v = !!on;
+    if (v === state.directInjection) return;
+    state.directInjection = v;
+    applyFuelMode(state.fuelMode);
+    updateAnchors();
   }
 
   function setCompression(eps) {
@@ -1640,20 +2076,28 @@ export function buildMechanism(opts = {}) {
       o.visible = state.labels;
       if (o.element && o.element.style) o.element.style.display = state.labels ? '' : 'none';
     }
+    applyBalanceShafts();     // подписи спрятанных валов не должны всплывать
   }
 
   function dispose() {
+    offLang();
     teardown();
     if (group.parent) group.parent.remove(group);
   }
 
   build();
 
+  /* Язык меняется на лету: подписи уже висят на деталях, поэтому пересобирать
+     сцену не нужно — достаточно переписать текст в их DOM-элементах. */
+  const offLang = onLangChange(refreshLabels);
+
   return {
     group, parts, anchors,
     update, setCylinders, setCompression, setCutaway, setLabels, dispose,
     /* ── вторая волна ── */
     setLayout, setTwoStroke, setTurbo, setIntercooler, setIntakeLength,
+    /* ── третья волна ── */
+    setBalanceShafts, setDirectInjection, setAtkinson,
     /** Пересчитать точки привязки (после смены ε или компоновки). */
     updateAnchors,
     /** Текущее состояние модели (только чтение). */

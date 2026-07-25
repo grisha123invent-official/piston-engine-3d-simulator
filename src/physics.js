@@ -12,13 +12,21 @@
  * Что умеет:
  *   • четыре такта (цикл 720°) и два такта с окнами и кривошипно-камерной
  *     продувкой (цикл 360°) — `params.cycleDeg` всегда говорит, какой сейчас;
- *   • компоновки single / i4 / v8 (развал 90°, крестообразный вал, порядок
- *     работы 1–8–4–3–6–5–7–2) — фазы берутся из layout.js;
+ *   • компоновки single / i4 / boxer4 (оппозитная, ряды ±90°, порядок 1–3–2–4) /
+ *     v8 (развал 90°, крестообразный вал, 1–8–4–3–6–5–7–2) — фазы из layout.js;
  *   • наддув: компрессор с честным нагревом заряда, интеркулер, турбояма
  *     через инерцию ротора (`stepTurbo`), вестгейт, влияние на детонацию;
  *   • настроенный впуск: четвертьволновой резонанс, пик момента ездит
  *     по оборотам при изменении `intakeLen_mm`;
- *   • уравновешенность: `cycle.shakeX_N/shakeY_N` и `metrics.balance`.
+ *   • уравновешенность: `cycle.shakeX_N/shakeY_N` и `metrics.balance`;
+ *   • цикл Аткинсона (`atkinson_deg`): позднее закрытие впуска, часть заряда
+ *     выталкивается обратно — сжатие короче расширения;
+ *   • прямой впрыск (`directInjection`): испарение топлива охлаждает заряд,
+ *     концевые газы холоднее — запас до детонации растёт;
+ *   • впуск переменной длины (`variableIntake`): выбор тракта по оборотам с гистерезисом;
+ *   • балансирные валы (`balanceShafts`): первый порядок у одноцилиндрового,
+ *     второй (валы Ланчестера) у рядной четвёрки;
+ *   • карта режимов `mapRpmLoad()` — поле двигателя «обороты × нагрузка».
  *
  * Таблицы цикла — Float32Array длиной 1441 (720°) или 721 (360°),
  * индекс i ↔ угол i·0.5°.
@@ -65,6 +73,30 @@ const K_TUNE = 8.5;           // номер рабочей гармоники д
 const RES_A = 0.30;           // амплитуда резонансного горба
 const RES_W = 0.24;           // относительная ширина горба
 const RES_D = 0.08;           // «просадка» вне резонанса (настройка всегда за чей-то счёт)
+
+/* ── впуск переменной длины (третья волна) ── */
+const VI_LONG_MM = 700;       // длинный тракт: низкий резонанс, момент на низах
+const VI_SHORT_MM = 230;      // короткий тракт: резонанс на верхах
+const VI_HYST = 0.045;        // гистерезис переключения, доля от точки пересечения кривых
+const VI_SCAN_LO = 900, VI_SCAN_HI = 7500, VI_SCAN_STEP = 25;
+
+/* ── цикл Аткинсона / Миллера ── */
+const ATK_MAX_DEG = 70;       // предел задержки закрытия впускного клапана
+const ATK_F_MIN = 0.25;       // не даём вытолкнуть обратно больше 75 % заряда
+
+/* ── прямой впрыск ── */
+const H_VAP_FUEL = 350e3;     // теплота парообразования бензина, Дж/кг
+const CP_AIR = 1005;          // теплоёмкость заряда при p = const, Дж/(кг·К)
+const DI_COOL_MIN = 15, DI_COOL_MAX = 25;   // разумные границы охлаждения заряда, К
+const DI_ENDGAS_K = 0.55;     // испарение продолжается на сжатии — концевые газы холоднее ещё на эту долю
+
+/* ── балансирные валы ── */
+const SHAFT_RESIDUAL = 0.15;  // полностью погасить нельзя: остаётся 10…20 %
+
+/* ── оппозитная компоновка ── */
+// Противолежащие цилиндры сидят на РАЗНЫХ шатунных шейках, поэтому разнесены
+// вдоль коленвала на ширину шейки (~50 мм). Отсюда и берётся продольный момент боксёра.
+const BOXER_PIN_HALF_U = 2.5; // половина разноса, юниты сцены (1 юнит = 10 мм)
 
 /* ── двухтактный цикл ── */
 const TWO_EO_DEG = 104;       // открытие выпускного окна, град. после ВМТ
@@ -135,6 +167,28 @@ function intakeTuning(rpm, len_mm, T_in, two) {
   return { etaV: clamp(base * res, 0.25, 1.15), nRes, fRes, res, cSound };
 }
 
+/**
+ * Обороты переключения впуска переменной длины.
+ *
+ * Ищем точку, где кривые наполнения длинного и короткого тракта пересекаются:
+ * ниже неё выгоднее длинный (резонанс на низах), выше — короткий. Сканируем
+ * рабочий диапазон и берём первое место смены знака разности, уточняя линейно.
+ * Результат кэшируется — от оборотов он не зависит, только от температуры заряда.
+ */
+function intakeSwitchRpm(T_in, two) {
+  let prev = null, prevN = VI_SCAN_LO;
+  for (let n = VI_SCAN_LO; n <= VI_SCAN_HI; n += VI_SCAN_STEP) {
+    const d = intakeTuning(n, VI_SHORT_MM, T_in, two).etaV
+            - intakeTuning(n, VI_LONG_MM, T_in, two).etaV;
+    if (prev !== null && prev < 0 && d >= 0) {
+      // линейное уточнение внутри шага
+      return prevN + VI_SCAN_STEP * (-prev) / Math.max(d - prev, 1e-9);
+    }
+    prev = d; prevN = n;
+  }
+  return 4000;   // кривые не пересеклись — разумная середина диапазона
+}
+
 /* ═══════════════════════════════ пресеты ═══════════════════════════════ */
 
 /** Параметры по умолчанию (см. §1 контракта). */
@@ -154,18 +208,26 @@ const DEFAULTS = {
   recipMass_kg: 0.55,
   flywheelJ: 0.12,
   // ── вторая волна ──
-  layout: 'i4',            // 'single' | 'i4' | 'v8' — число цилиндров производно от неё
+  layout: 'i4',            // 'single' | 'i4' | 'boxer4' | 'v8' — число цилиндров производно от неё
   stroke2: false,          // двухтактный цикл (только одноцилиндровый)
   cycleDeg: 720,           // длина полного цикла: 720 или 360 (производное от stroke2)
   boost_bar: 0,            // наддув сверх атмосферы, бар
   turbo: false,            // турбина с инерцией ротора (иначе наддув мгновенный, как от нагнетателя)
   intercooler: true,       // промежуточный охладитель заряда
   intakeLen_mm: 350,       // длина впускного тракта (резонансная настройка)
+  // ── третья волна ──
+  balanceShafts: false,    // балансирные валы
+  atkinson_deg: 0,         // задержка закрытия впускного клапана сверх обычной, 0…70°
+  directInjection: false,  // впрыск прямо в цилиндр вместо впускного канала
+  variableIntake: false,   // впускной коллектор переменной длины (переключается сам)
 };
 
 /** Компоновка по числу цилиндров — для обратной совместимости со старым полем cylinders. */
 const cylToLayout = n => (n === 1 ? 'single' : n === 8 ? 'v8' : 'i4');
-const LAYOUT_NAMES = { single: 'одноцилиндровый', i4: 'рядная 4', v8: 'V8, крестообразный вал' };
+const LAYOUT_NAMES = {
+  single: 'одноцилиндровый', i4: 'рядная 4',
+  boxer4: 'оппозитная 4', v8: 'V8, крестообразный вал',
+};
 
 /** Готовые наборы параметров. */
 export const PRESETS = {
@@ -199,6 +261,11 @@ class Engine {
     this._turbo = { p: 0, target: 0, t: 0, lastT: -1 };
     this._boostMode = 'state';    // 'state' — по инерции ротора, 'steady' — установившийся (для свипа)
     this._boostApplied = 0;
+    // впуск переменной длины: текущее состояние заслонки (нужно для гистерезиса)
+    // и кэш точки пересечения кривых наполнения
+    this._intake = { mode: 'long', switchRpm: 0, key: '' };
+    // облегчённый режим расчёта для карты режимов (см. mapRpmLoad)
+    this._fast = false;
     this.setParams(params || {});
     this._turbo.p = this._boostTargetAt(this.params.rpm, this.params.throttle);
     this._compute();
@@ -267,6 +334,13 @@ class Engine {
     p.turbo = !!p.turbo;
     p.intercooler = p.intercooler !== false;
     p.intakeLen_mm = clamp(fin(p.intakeLen_mm, 350), 100, 900);
+
+    // ── третья волна ──
+    p.balanceShafts = !!p.balanceShafts;
+    p.directInjection = !!p.directInjection;
+    p.variableIntake = !!p.variableIntake;
+    // у двухтактного впускного клапана нет — цикл Аткинсона к нему неприменим
+    p.atkinson_deg = p.stroke2 ? 0 : clamp(fin(p.atkinson_deg, 0), 0, ATK_MAX_DEG);
 
     p.recipMass_kg = clamp(fin(p.recipMass_kg, 0.55), 0.05, 10);
     p.flywheelJ = clamp(fin(p.flywheelJ, 0.12), 0.005, 5);
@@ -363,6 +437,13 @@ class Engine {
     const fPortEx = posOf(TWO_EO_DEG * DEG2RAD) / S;
     const fPortTr = posOf(TWO_TO_DEG * DEG2RAD) / S;
 
+    /* ── цикл Аткинсона: впускной клапан закрывается позже на atkinson_deg ──
+     * Пока он открыт, поднимающийся поршень выталкивает часть заряда обратно
+     * во впускной коллектор. Сжатие начинается только с фактического закрытия,
+     * а расширяется газ на весь ход — отсюда «расширение длиннее сжатия». */
+    const atk = two ? 0 : clamp(fin(p.atkinson_deg, 0), 0, ATK_MAX_DEG);
+    const ivcEff = p.ivc + atk;
+
     const h = 1e-4;
     for (let i = 0; i < NPTS; i++) {
       const d = i * STEP_DEG;
@@ -381,7 +462,7 @@ class Engine {
         liftEx[i] = clamp((pistonFrac[i] - fPortEx) / PORT_H_EX, 0, 1);
         liftIn[i] = clamp((pistonFrac[i] - fPortTr) / PORT_H_TR, 0, 1);
       } else {
-        liftIn[i] = valveLift(d, p.ivo, p.ivc);
+        liftIn[i] = valveLift(d, p.ivo, ivcEff);
         liftEx[i] = valveLift(d, p.evo, p.evc);
       }
     }
@@ -400,15 +481,61 @@ class Engine {
     const T_charge = (boost > 1e-4 && p.intercooler)
       ? T_AMB + IC_DT_MIN + (IC_DT_MAX - IC_DT_MIN) * clamp((PR - 1) / 0.8, 0, 1)
       : T_comp;
-    const T_in = T_charge + PORT_HEAT_K;                    // подогрев в канале и от стенок
+    /* ── прямой впрыск: испарение топлива охлаждает заряд ──
+     * Во впускном канале (PFI) бензин испаряется в основном за счёт тепла стенок канала
+     * и клапана. При впрыске прямо в цилиндр вся теплота парообразования снимается
+     * с воздуха: ΔT = m_т·r / (m_возд·c_p) = r / (AFR·c_p) ≈ 350000/(14,7·1005) ≈ 24 К.
+     * У дизеля впрыск в цилиндр и так, поэтому переключатель на него не влияет. */
+    const diOn = !!p.directInjection && p.fuel === 'petrol';
+    const chargeCooling = diOn
+      ? clamp(H_VAP_FUEL / (F.AFR * CP_AIR), DI_COOL_MIN, DI_COOL_MAX)
+      : 0;
+
+    const T_in = T_charge + PORT_HEAT_K - chargeCooling;    // подогрев в канале минус охлаждение впрыском
 
     const p_man = (P_ATM + boost * 1e5) * (p.fuel === 'diesel' ? 1.0 : 0.12 + 0.88 * p.throttle);
     const p_exh = P_EXH_BAR * 1e5 * (1 + 0.35 * boost);     // турбина подпирает выпуск
 
-    const tune = intakeTuning(p.rpm, p.intakeLen_mm, T_in, p.stroke2);
+    /* ── впуск переменной длины ──
+     * Заслонка выбирает длинный или короткий тракт по оборотам. Точка переключения —
+     * пересечение кривых наполнения; гистерезис не даёт заслонке дребезжать на границе. */
+    let intakeLenNow = p.intakeLen_mm, intakeMode = 'fixed', switchRpm = 0;
+    if (p.variableIntake) {
+      const key = `${Math.round(T_in)}|${two ? 1 : 0}`;
+      if (this._intake.key !== key) {
+        this._intake.key = key;
+        this._intake.switchRpm = intakeSwitchRpm(T_in, two);
+      }
+      switchRpm = this._intake.switchRpm;
+      const up = switchRpm * (1 + VI_HYST), down = switchRpm * (1 - VI_HYST);
+      if (p.rpm >= up) this._intake.mode = 'short';
+      else if (p.rpm <= down) this._intake.mode = 'long';
+      intakeMode = this._intake.mode;
+      intakeLenNow = intakeMode === 'short' ? VI_SHORT_MM : VI_LONG_MM;
+    }
+
+    const tune = intakeTuning(p.rpm, intakeLenNow, T_in, p.stroke2);
     const etaV = tune.etaV;
 
     const rho_ref = p_man / (R_GAS * T_in);          // плотность заряда во впуске
+
+    /* ── цикл Аткинсона: сколько заряда удержано в цилиндре ──
+     * Пока впускной клапан открыт, цилиндр соединён с коллектором и давление в нём
+     * держится около p_кол. Значит масса заряда просто следует за объёмом: поднимаясь
+     * от НМТ к фактическому закрытию, поршень выталкивает обратно ровно ту долю,
+     * на которую уменьшился объём. Никаких дополнительных множителей здесь быть
+     * не должно — инерционный подпор столба воздуха уже сидит в резонансной
+     * поправке коэффициента наполнения (см. intakeTuning). */
+    const iIvcBase = Math.round(p.ivc / STEP_DEG);
+    const iIvcEff = Math.round(ivcEff / STEP_DEG);
+    const Vswept0 = Math.max(Vm[iIvcBase] - Vc, 1e-12);         // «полезный» объём при обычном IVC
+    /** Доля свежего заряда, ещё оставшаяся в цилиндре к узлу i (участок после НМТ). */
+    const trapFracAt = i => clamp((Vm[i] - Vc) / Vswept0, 0, 1);
+    const atkTrap = (two || atk <= 0) ? 1 : clamp(trapFracAt(iIvcEff), ATK_F_MIN, 1);
+    // действительная степень сжатия — по фактически удержанной массе,
+    // степень расширения — геометрическая, поршень всё равно идёт до НМТ
+    const effCR = (Vc + atkTrap * Vswept0) / Vc;
+    const expCR = (Vc + (Vm[Math.round(180 / STEP_DEG)] - Vc)) / Vc;
 
     /* ── масса заряда ── */
     let m_air, m_fuel, m_fuelDeliv, deliveryRatio = 0, trapEff = 1, scavEff = 1, etaCharge = etaV;
@@ -426,12 +553,14 @@ class Engine {
       trapEff = clamp(0.95 - 0.15 * deliveryRatio - 0.20 * Math.pow(p.rpm / 6500, 1.5), 0.40, 0.90);
       m_air = m_deliv * trapEff;                     // осталось в цилиндре
       m_fuel = m_air / F.AFR;                        // смесь готовится в кривошипной камере,
-      m_fuelDeliv = m_deliv / F.AFR;                 // поэтому вылетает и часть топлива
+      // При прямом впрыске топлива в продувочном потоке нет — короткое замыкание
+      // уносит чистый воздух, а не смесь. Классическое лекарство для двухтактника.
+      m_fuelDeliv = diOn ? m_fuel : m_deliv / F.AFR;
       // Чистота заряда: смесь идеального вытеснения и идеального перемешивания.
       scavEff = clamp(0.45 * Math.min(deliveryRatio, 1) + 0.55 * (1 - Math.exp(-deliveryRatio)), 0.35, 0.95);
       etaCharge = deliveryRatio * trapEff;           // коэффициент наполнения двухтактного
     } else {
-      m_air = etaV * p_man * Vd / (R_GAS * T_in);
+      m_air = etaV * atkTrap * p_man * Vd / (R_GAS * T_in);
       // бензин — количественное регулирование (смесь стехиометрическая),
       // дизель — качественное: масса топлива пропорциональна «педали»
       m_fuel = p.fuel === 'diesel' ? p.throttle * m_air / F.AFR : m_air / F.AFR;
@@ -443,7 +572,8 @@ class Engine {
     /* ── индексы фаз ── */
     // Четырёхтактный — клапаны; двухтактный — окна: выпускное 104…256°,
     // продувочные 122…238° (симметрично относительно НМТ, их открывает поршень).
-    const iIVC = two ? Math.round((360 - TWO_EO_DEG) / STEP_DEG) : Math.round(p.ivc / STEP_DEG);
+    // при Аткинсоне закрытый цикл начинается позже — с фактического закрытия впуска
+    const iIVC = two ? Math.round((360 - TWO_EO_DEG) / STEP_DEG) : iIvcEff;
     const iEVO = two ? Math.round(TWO_EO_DEG / STEP_DEG) : Math.round(p.evo / STEP_DEG);
     const iEVC = two ? Math.round((360 - TWO_EO_DEG) / STEP_DEG) : Math.round(p.evc / STEP_DEG);
     const iTrO = Math.round(TWO_TO_DEG / STEP_DEG);            // открытие продувочных окон
@@ -498,6 +628,9 @@ class Engine {
     const Sp = 2 * S * p.rpm / 60;
     const tau_deg = clamp(12 * (p.rpm / 3000), 3, 40);        // постоянная истечения, град
     const p_exh_eff = p_exh * (1 + 0.10 * (p.rpm / 3000) ** 2);
+
+    // дополнительное охлаждение концевых газов при прямом впрыске (см. runClosed)
+    const TuEndGasOff = diOn ? DI_ENDGAS_K * chargeCooling : 0;
 
     let Q_wall_total = 0;
     let T_res = 1000;                                          // оценка температуры остаточных газов
@@ -562,7 +695,12 @@ class Engine {
             if (unburned > 5e-3) {
               // состояние несгоревшей зоны: адиабатическое сжатие от условий в начале сжатия
               const gu = 1.32;                              // показатель адиабаты свежей смеси
-              const Tu = clamp(T_ivc * Math.pow(Math.max(P / p_ivc, 1e-6), (gu - 1) / gu), 250, 2200);
+              // При прямом впрыске испарение не заканчивается на впуске: капли в концевой
+              // зоне продолжают отбирать тепло на сжатии, и именно эта зона решает,
+              // будет стук или нет. Отсюда дополнительная поправка к T несгоревшей смеси.
+              const Tu = clamp(
+                T_ivc * Math.pow(Math.max(P / p_ivc, 1e-6), (gu - 1) / gu) - TuEndGasOff,
+                250, 2200);
               const p_atm = P / 101325;                     // корреляция требует давление в АТМ
               const tau_ms = onFac * Math.pow(Math.max(p_atm, 1e-3), -1.7) * Math.exp(3800 / Tu);
               const prev = LW;
@@ -651,6 +789,11 @@ class Engine {
         let f;
         if (d <= 180) f = 0.93 * clamp((Vm[i] - V_evc) / Vspan, 0, 1);
         else f = 0.93 + 0.07 * clamp((d - 180) / Math.max(p.ivc - 180, 1), 0, 1);
+        // Аткинсон: до НМТ цилиндр наполняется полностью (m_fresh/atkTrap — это и есть
+        // полный заряд), после НМТ поршень гонит часть обратно во впуск, и к моменту
+        // фактического закрытия остаётся ровно m_fresh. Давление при этом всё время
+        // держится около коллекторного — иначе получился бы ложный вакуум на впуске.
+        if (atk > 0) f *= (d <= 180 ? 1 : trapFracAt(i)) / atkTrap;
         const mm = m_res + m_fresh * f;
         const TT = (m_res * T_res + m_fresh * f * T_in) / Math.max(mm, 1e-12);
         m_kg[i] = mm;
@@ -744,22 +887,32 @@ class Engine {
     const shakeX = new Float32Array(NPTS);
     const shakeY = new Float32Array(NPTS);
     const coupleZ = new Float64Array(NPTS);
-    {
+    /**
+     * Положение цилиндра вдоль коленвала, юниты сцены.
+     * У боксёра противолежащие цилиндры сидят на РАЗНЫХ шатунных шейках и потому
+     * разнесены вдоль вала на их ширину — таблица компоновки даёт им общий z,
+     * а физике этот разнос нужен: именно он и рождает продольный момент боксёра.
+     */
+    const zOf = c => (c.z || 0)
+      + (p.layout === 'boxer4' ? Math.sign(c.tilt || 0) * BOXER_PIN_HALF_U : 0);
+    // на карте режимов уравновешенность не показывается — не тратим на неё время
+    const fast = !!this._fast;
+    if (!fast) {
       let zMid = 0;
-      for (const c of spec.cyl) zMid += (c.z || 0);
+      for (const c of spec.cyl) zMid += zOf(c);
       zMid /= Math.max(spec.cyl.length, 1);
+      // единичные векторы осей цилиндров считаем один раз, а не на каждом шаге
+      const ux = spec.cyl.map(c => Math.sin(c.tilt || 0));
+      const uy = spec.cyl.map(c => Math.cos(c.tilt || 0));
+      const uz = spec.cyl.map(c => (zOf(c) - zMid) * 0.01);   // юниты сцены (1 = 10 мм) → метры
       for (let i = 0; i < NPTS; i++) {
         let fx = 0, fy = 0, mx = 0, my = 0;
         for (let q = 0; q < spec.cyl.length; q++) {
-          const c = spec.cyl[q];
-          const a = c.tilt || 0;                       // наклон оси цилиндра от вертикали
           const F = inertiaForce[wrap(i + offs[q])];   // сила вдоль оси этого цилиндра
-          const ex = Math.sin(a), ey = Math.cos(a);
-          fx += F * ex;
-          fy += F * ey;
-          const z = ((c.z || 0) - zMid) * 0.01;        // юниты сцены (1 = 10 мм) → метры
-          mx += F * ey * z;
-          my += F * ex * z;
+          fx += F * ux[q];
+          fy += F * uy[q];
+          mx += F * uy[q] * uz[q];
+          my += F * ux[q] * uz[q];
         }
         shakeX[i] = fin(fx);
         shakeY[i] = fin(fy);
@@ -767,8 +920,8 @@ class Engine {
       }
     }
 
-    /** Амплитуда гармоники k-го порядка (частота = k × обороты) вектора (X, Y). */
-    const orderAmp = k => {
+    /** Коэффициенты Фурье гармоники k-го порядка для векторов (X, Y). */
+    const orderCoef = k => {
       let axc = 0, axs = 0, ayc = 0, ays = 0;
       for (let i = 0; i < NST; i++) {
         const th = k * deg[i] * DEG2RAD;
@@ -777,7 +930,12 @@ class Engine {
         ayc += shakeY[i] * cs; ays += shakeY[i] * sn;
       }
       const n2 = 2 / NST;
-      axc *= n2; axs *= n2; ayc *= n2; ays *= n2;
+      return { axc: axc * n2, axs: axs * n2, ayc: ayc * n2, ays: ays * n2 };
+    };
+
+    /** Амплитуда гармоники k-го порядка (частота = k × обороты) вектора (X, Y). */
+    const orderAmp = k => {
+      const { axc, axs, ayc, ays } = orderCoef(k);
       // вектор порядка k вращается — берём наибольшую его длину за оборот
       let mx = 0;
       for (let d = 0; d < 360; d += 2) {
@@ -788,28 +946,114 @@ class Engine {
       return mx;
     };
 
-    const primary_N = orderAmp(1);
-    const secondary_N = orderAmp(2);
+    // до валов — «сырые» силы, они и попадут в metrics.balance.*Raw_N
+    const primaryRaw_N = fast ? 0 : orderAmp(1);
+    const secondaryRaw_N = fast ? 0 : orderAmp(2);
+
+    /* ── балансирные валы ──
+     * Пара валов с противовесами, вращающихся навстречу друг другу, создаёт
+     * возвратно-поступательную силу заданного порядка в противофазе к силе двигателя.
+     * Гасимый порядок зависит от компоновки: одноцилиндровый — первый (валы крутятся
+     * со скоростью коленвала), рядная четвёрка — второй (валы Ланчестера, вдвое быстрее).
+     * Полностью погасить нельзя никогда: противовесы конечной точности, зазоры,
+     * податливость блока — реально остаётся 10…20 % амплитуды.
+     * У оппозитной четвёрки и крестообразного V8 гасить уже нечего.
+     */
+    const shaftOrder = (p.balanceShafts && !fast)
+      ? (p.layout === 'single' ? 1 : p.layout === 'i4' ? 2 : 0)
+      : 0;
+    if (shaftOrder > 0) {
+      const { axc, axs, ayc, ays } = orderCoef(shaftOrder);
+      const kill = 1 - SHAFT_RESIDUAL;
+      for (let i = 0; i < NPTS; i++) {
+        const th = shaftOrder * deg[i] * DEG2RAD;
+        const cs = Math.cos(th), sn = Math.sin(th);
+        shakeX[i] = fin(shakeX[i] - kill * (axc * cs + axs * sn));
+        shakeY[i] = fin(shakeY[i] - kill * (ayc * cs + ays * sn));
+      }
+    }
+
+    const primary_N = shaftOrder === 1 ? orderAmp(1) : primaryRaw_N;
+    const secondary_N = shaftOrder === 2 ? orderAmp(2) : secondaryRaw_N;
     let couple_Nm = 0;
     for (let i = 0; i < NST; i++) if (coupleZ[i] > couple_Nm) couple_Nm = coupleZ[i];
 
-    // словесный вывод — то, чем компоновка хороша или плоха
+    // словесный вывод — то, чем компоновка хороша или плоха; пара { ru, en } для i18n
     const kN = v => (v >= 1000 ? (v / 1000).toFixed(1) + ' кН' : Math.round(v) + ' Н');
+    const kNe = v => (v >= 1000 ? (v / 1000).toFixed(1) + ' kN' : Math.round(v) + ' N');
     let verdict;
-    if (p.layout === 'single') {
-      verdict = `Одноцилиндровый: сила первого порядка (${kN(primary_N)}) ничем не скомпенсирована — `
-        + 'её гасят только противовесами и балансирным валом, отсюда характерная тряска.';
+    if (fast) {
+      verdict = { ru: '', en: '' };
+    } else if (p.layout === 'single') {
+      verdict = {
+        ru: `Одноцилиндровый: сила первого порядка (${kN(primary_N)}) ничем не скомпенсирована — `
+          + 'её гасят только противовесами и балансирным валом, отсюда характерная тряска.',
+        en: `Single cylinder: the first-order force (${kNe(primary_N)}) is not cancelled by anything — `
+          + 'only counterweights and a balance shaft can tame it, hence the familiar shake.',
+      };
     } else if (p.layout === 'i4') {
-      verdict = `Рядная четвёрка: первый порядок взаимно погашен (${kN(primary_N)}), но силы второго порядка `
-        + `всех четырёх цилиндров складываются (${kN(secondary_N)}) — классическая вибрация I4 на средних оборотах.`;
+      verdict = {
+        ru: `Рядная четвёрка: первый порядок взаимно погашен (${kN(primary_N)}), но силы второго порядка `
+          + `всех четырёх цилиндров складываются (${kN(secondary_N)}) — классическая вибрация I4 на средних оборотах.`,
+        en: `Inline-four: the first order cancels out (${kNe(primary_N)}), but the second-order forces of all `
+          + `four cylinders add up (${kNe(secondary_N)}) — the classic I4 vibration at mid revs.`,
+      };
+    } else if (p.layout === 'boxer4') {
+      verdict = {
+        ru: `Оппозитная четвёрка: противолежащие поршни идут навстречу друг другу, поэтому гасятся `
+          + `и первый (${kN(primary_N)}), и второй (${kN(secondary_N)}) порядок. Остаётся продольный момент `
+          + `${couple_Nm.toFixed(0)} Н·м: пары цилиндров сидят на разных шатунных шейках и разнесены вдоль вала.`,
+        en: `Flat-four: opposed pistons move towards and away from each other, so both the first `
+          + `(${kNe(primary_N)}) and the second (${kNe(secondary_N)}) order cancel. What remains is a `
+          + `${couple_Nm.toFixed(0)} N·m longitudinal couple — the cylinder pairs sit on separate crankpins, offset along the shaft.`,
+      };
     } else {
-      verdict = `V8, развал 90°, крестообразный вал: и первый (${kN(primary_N)}), и второй (${kN(secondary_N)}) порядки `
-        + `уравновешены, остаётся лишь продольный момент ${couple_Nm.toFixed(0)} Н·м — платой за это идёт неравномерный выпуск.`;
+      verdict = {
+        ru: `V8, развал 90°, крестообразный вал: и первый (${kN(primary_N)}), и второй (${kN(secondary_N)}) порядки `
+          + `уравновешены, остаётся лишь продольный момент ${couple_Nm.toFixed(0)} Н·м — платой за это идёт неравномерный выпуск.`,
+        en: `Cross-plane V8 at 90°: both the first (${kNe(primary_N)}) and the second (${kNe(secondary_N)}) order are `
+          + `balanced; only a ${couple_Nm.toFixed(0)} N·m longitudinal couple remains — the price is uneven exhaust pulses.`,
+      };
     }
+
+    // балансирные валы — отдельной фразой, чтобы было видно, что именно они дали
+    if (p.balanceShafts && !fast) {
+      const pct = Math.round(SHAFT_RESIDUAL * 100);
+      let add;
+      if (shaftOrder === 1) {
+        add = {
+          ru: ` Балансирный вал (скорость коленвала) убирает первый порядок: ${kN(primaryRaw_N)} → ${kN(primary_N)}, `
+            + `полностью погасить нельзя — остаётся около ${pct} %.`,
+          en: ` The balance shaft (running at crank speed) removes the first order: ${kNe(primaryRaw_N)} → ${kNe(primary_N)}; `
+            + `full cancellation is impossible — about ${pct} % remains.`,
+        };
+      } else if (shaftOrder === 2) {
+        add = {
+          ru: ` Валы Ланчестера крутятся вдвое быстрее коленвала и снимают второй порядок: `
+            + `${kN(secondaryRaw_N)} → ${kN(secondary_N)}, остаточные ${pct} % никуда не деть.`,
+          en: ` Lanchester shafts spin at twice crank speed and take out the second order: `
+            + `${kNe(secondaryRaw_N)} → ${kNe(secondary_N)}; the residual ${pct} % cannot be removed.`,
+        };
+      } else {
+        add = {
+          ru: ' Балансирные валы здесь почти бесполезны: силы обоих порядков и так взаимно погашены компоновкой, '
+            + 'валы добавили бы только массу и потери на трение.',
+          en: ' Balance shafts are nearly pointless here: the layout already cancels both orders, '
+            + 'so the shafts would only add mass and friction losses.',
+        };
+      }
+      verdict = { ru: verdict.ru + add.ru, en: verdict.en + add.en };
+    }
+
     const balance = {
       primary_N: fin(primary_N, 0),
       secondary_N: fin(secondary_N, 0),
       couple_Nm: fin(couple_Nm, 0),
+      // ── третья волна: что было до валов и что они реально дали ──
+      shafts: !!p.balanceShafts,
+      shaftOrder,                                    // какой порядок гасится (0 — никакой)
+      primaryRaw_N: fin(primaryRaw_N, 0),
+      secondaryRaw_N: fin(secondaryRaw_N, 0),
       verdict,
     };
 
@@ -839,6 +1083,9 @@ class Engine {
     const Qfuel = m_fuelDeliv * F.LHV;                    // энергия топлива за цикл на цилиндр
     const Qburn = m_fuel * F.LHV;                         // из неё реально попало в камеру
     const effInd = Qfuel > 1e-9 ? W / Qfuel : 0;
+    // КПД замкнутого участка (IVC→EVO), без насосных потерь и трения — «термодинамический».
+    // Именно он показывает выигрыш цикла Аткинсона: сжатие короче, расширение прежнее.
+    const effClosed = Qfuel > 1e-9 ? Wgross / Qfuel : 0;
     const effBrake = Qfuel > 1e-9 ? (bmep * Vd) / Qfuel : 0;
     const effOtto = 1 - Math.pow(p.eps, -0.4);
 
@@ -871,20 +1118,23 @@ class Engine {
     for (let i = 0; i < NST; i++) Msum += torqueTotal[i];
     const Mload = Msum / NST;
     const Jtot = p.flywheelJ * p.cylinders;
-    const w2 = new Float64Array(NPTS);
-    w2[0] = omega * omega;
-    for (let i = 0; i < NST; i++) {
-      w2[i + 1] = Math.max(w2[i] + 2 * (torqueTotal[i] - Mload) * dth / Jtot, (0.05 * omega) ** 2);
+    let delta = 0;
+    if (!fast) {
+      const w2 = new Float64Array(NPTS);
+      w2[0] = omega * omega;
+      for (let i = 0; i < NST; i++) {
+        w2[i + 1] = Math.max(w2[i] + 2 * (torqueTotal[i] - Mload) * dth / Jtot, (0.05 * omega) ** 2);
+      }
+      let wmin = Infinity, wmax = 0, wsum = 0;
+      for (let i = 0; i < NST; i++) {
+        const wv = Math.sqrt(w2[i]);
+        if (wv < wmin) wmin = wv;
+        if (wv > wmax) wmax = wv;
+        wsum += wv;
+      }
+      const wavg = wsum / NST;
+      delta = wavg > 1e-6 ? (wmax - wmin) / wavg : 0;
     }
-    let wmin = Infinity, wmax = 0, wsum = 0;
-    for (let i = 0; i < NST; i++) {
-      const wv = Math.sqrt(w2[i]);
-      if (wv < wmin) wmin = wv;
-      if (wv > wmax) wmax = wv;
-      wsum += wv;
-    }
-    const wavg = wsum / NST;
-    const delta = wavg > 1e-6 ? (wmax - wmin) / wavg : 0;
 
     /* ── публикуем ── */
     this.cycle = {
@@ -911,6 +1161,7 @@ class Engine {
       brakePower_kW: fin(brakePower / 1000, 0),
       brakeTorque_Nm: fin(brakeTorque, 0),
       effIndicated: fin(effInd, 0),
+      effClosedCycle: fin(effClosed, 0),         // замкнутый участок IVC→EVO, без насосных потерь
       effBrake: fin(effBrake, 0),
       effOtto: fin(effOtto, 0),
       bsfc_g_kWh: fin(bsfc, 0),
@@ -940,6 +1191,18 @@ class Engine {
       chargeT_afterComp_K: fin(T_comp, T_AMB),         // он же до интеркулера
       intakeT_K: fin(T_in, T_INTAKE),
       pressureRatio: fin(PR, 1),
+      // ── третья волна: Аткинсон, прямой впрыск, переменный впуск ──
+      atkinson_deg: fin(atk, 0),
+      effCompressionRatio: fin(effCR, p.eps),        // действительная (по удержанному заряду)
+      expansionRatio: fin(expCR, p.eps),             // геометрическая: расширение идёт до НМТ
+      atkinsonLoss_pct: fin(100 * (1 - atkTrap), 0), // сколько заряда вытолкнуто обратно во впуск
+      directInjection: diOn,
+      chargeCooling_K: fin(chargeCooling, 0),        // охлаждение заряда испарением топлива
+      variableIntake: !!p.variableIntake,
+      intakeLenNow_mm: fin(intakeLenNow, p.intakeLen_mm),
+      intakeMode,                                    // 'long' | 'short' | 'fixed'
+      intakeSwitch_rpm: fin(switchRpm, 0),
+      layout: p.layout,
       // ── настройка впуска ──
       intakeResonance_rpm: fin(tune.nRes, 0),
       intakeResonance_Hz: fin(tune.fRes, 0),
@@ -956,7 +1219,9 @@ class Engine {
     };
 
     this._Mload = Mload;
-    this._sanitize();
+    // в облегчённом режиме таблицы наружу не отдаются — чистить их незачем,
+    // все скалярные метрики и так пропущены через fin()
+    if (!fast) this._sanitize();
   }
 
   /** Страховка: ни одного NaN/Infinity в таблицах — заменяем на соседнее корректное значение. */
@@ -1061,6 +1326,7 @@ class Engine {
 
     const savedRpm = this.params.rpm;
     const savedMode = this._boostMode;
+    const savedIntake = this._intake.mode;
     const savedDyn = { ...this._dyn };
     this._boostMode = 'steady';
     try {
@@ -1079,10 +1345,106 @@ class Engine {
     } finally {
       this.params.rpm = savedRpm;
       this._boostMode = savedMode;
+      this._intake.mode = savedIntake;
       this._compute();
       this._dyn.deg = savedDyn.deg;
       this._dyn.omega = savedDyn.omega;
     }
+    return out;
+  }
+
+  /* ─────────────── карта режимов ─────────────── */
+
+  /**
+   * Карта режимов «обороты × нагрузка» — то, что моторист называет полем двигателя.
+   *
+   * В каждой точке сетки считается полный цикл при установившемся наддуве; наружу
+   * отдаются мощность, момент, удельный расход, эффективный КПД и интеграл детонации.
+   * Отдельно возвращается «остров экономичности» — точка минимального расхода.
+   *
+   * Расчёт идёт в облегчённом режиме (`_fast`): пропускаются вещи, которых на карте
+   * не видно — гармонический анализ уравновешенности со словесным выводом,
+   * неравномерность хода и финальная чистка таблиц. Термодинамика (два прохода,
+   * четыре подшага, интеграл Ливенгуда–Ву) считается полностью, без упрощений.
+   *
+   * Состояние движка полностью восстанавливается.
+   *
+   * @param {{rpmFrom?:number,rpmTo?:number,rpmSteps?:number,loadSteps?:number}} opts
+   * @returns {{rpm:Float32Array, load:Float32Array, power_kW:Float32Array,
+   *            torque_Nm:Float32Array, bsfc_g_kWh:Float32Array, effBrake:Float32Array,
+   *            knockIntegral:Float32Array, best:{bsfc_g_kWh:number, rpm:number, load:number}}}
+   */
+  mapRpmLoad(opts) {
+    const o = opts || {};
+    let rpmFrom = clamp(fin(o.rpmFrom, 800), 300, 9000);
+    let rpmTo = clamp(fin(o.rpmTo, 6000), 300, 9000);
+    if (rpmTo < rpmFrom) { const t = rpmFrom; rpmFrom = rpmTo; rpmTo = t; }
+    const nR = clamp(Math.round(fin(o.rpmSteps, 24)), 2, 96);
+    const nL = clamp(Math.round(fin(o.loadSteps, 16)), 2, 64);
+    const N = nR * nL;
+
+    const out = {
+      rpm: new Float32Array(nR),
+      load: new Float32Array(nL),
+      power_kW: new Float32Array(N),
+      torque_Nm: new Float32Array(N),
+      bsfc_g_kWh: new Float32Array(N),
+      effBrake: new Float32Array(N),
+      knockIntegral: new Float32Array(N),
+      best: { bsfc_g_kWh: 0, rpm: 0, load: 0 },
+    };
+    for (let i = 0; i < nR; i++) out.rpm[i] = rpmFrom + (rpmTo - rpmFrom) * i / (nR - 1);
+    for (let j = 0; j < nL; j++) out.load[j] = j / (nL - 1);
+
+    const saved = {
+      rpm: this.params.rpm,
+      throttle: this.params.throttle,
+      mode: this._boostMode,
+      intake: this._intake.mode,
+      dyn: { ...this._dyn },
+    };
+    this._boostMode = 'steady';
+    this._fast = true;
+
+    let bestBsfc = Infinity, bestR = out.rpm[0], bestL = out.load[0];
+    try {
+      for (let i = 0; i < nR; i++) {
+        this.params.rpm = out.rpm[i];
+        for (let j = 0; j < nL; j++) {
+          this.params.throttle = clamp(out.load[j], 0.02, 1);
+          this._compute();
+          const m = this.metrics;
+          const k = i * nL + j;
+          out.power_kW[k] = fin(m.brakePower_kW, 0);
+          out.torque_Nm[k] = fin(m.brakeTorque_Nm, 0);
+          out.bsfc_g_kWh[k] = fin(m.bsfc_g_kWh, 0);
+          out.effBrake[k] = fin(m.effBrake, 0);
+          out.knockIntegral[k] = fin(m.knock ? m.knock.intensity : 0, 0);
+          // «остров экономичности»: минимум расхода среди режимов, где двигатель
+          // действительно тянет (на холостых расход бесконечен и точки нет)
+          if (out.bsfc_g_kWh[k] > 1 && out.bsfc_g_kWh[k] < bestBsfc && out.power_kW[k] > 0.5) {
+            bestBsfc = out.bsfc_g_kWh[k];
+            bestR = out.rpm[i];
+            bestL = out.load[j];
+          }
+        }
+      }
+    } finally {
+      this._fast = false;
+      this.params.rpm = saved.rpm;
+      this.params.throttle = saved.throttle;
+      this._boostMode = saved.mode;
+      this._intake.mode = saved.intake;
+      this._compute();
+      this._dyn.deg = saved.dyn.deg;
+      this._dyn.omega = saved.dyn.omega;
+    }
+
+    out.best = {
+      bsfc_g_kWh: Number.isFinite(bestBsfc) ? bestBsfc : 0,
+      rpm: bestR,
+      load: bestL,
+    };
     return out;
   }
 

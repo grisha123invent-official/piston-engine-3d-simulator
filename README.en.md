@@ -47,6 +47,9 @@ a 4.0 L V8.
 | 📈 **Seven charts** | p–V, torque, kinematics, valve timing, energy balance, full-load speed curve, balance |
 | 💥 **Knock** | From the Livengood–Wu integral — with a shock wave in the chamber and an audible rattle |
 | 🎚 **Live tuning** | Engine speed, throttle, compression ratio, ignition advance, octane number, intake tract length |
+| 🌍 **Two languages** | Russian and English — switched on the fly, including the theory, the charts and the part labels |
+| 🧭 **Engine operating map** | A heat map of fuel consumption across speed and load, with contour lines, a knock zone and an "island of efficiency" |
+| ⚗️ **Cycles and mixture formation** | Atkinson cycle, direct injection, variable-length intake, balance shafts |
 | 💧 **Every fluid** | Fuel, exhaust, oil circuit, coolant in the jacket, boost flow, loop scavenging |
 | ⚡ **Quick presets** | Eight scenarios in one click: City, Full throttle, Turbo, Knock, Diesel, Two-stroke, V8, Idle |
 
@@ -214,6 +217,71 @@ and the Wiebe heat-release curve.</td>
 <img src="docs/metrics.png" alt="Metrics" width="46%">
 </div>
 
+## ⚗️ Atkinson cycle and direct injection
+
+<img src="docs/atkinson.png" alt="Atkinson cycle" width="100%">
+
+The **Atkinson cycle** closes the intake valve later, so part of the charge is pushed back into
+the intake manifold. The effective compression ratio drops while the expansion ratio stays
+geometric — the gases get to give up more work:
+
+| Late intake closing | effective ε | Blown back | Closed-cycle efficiency | Power |
+|---|---|---|---|---|
+| 0° | 8.8 | 0 % | 40.4 % | 49.0 kW |
+| 30° | 7.0 | 24 % | 41.4 % | 34.5 kW |
+| 60° | 4.6 | 54 % | **43.2 %** | 15.0 kW |
+
+At a fixed throttle the brake efficiency actually falls — friction and the pumping stroke do
+not shrink along with the charge. The gain appears **at equal power**: at 2000 rpm an Atkinson
+engine with 30° of late closing returns a BSFC of 284 against 289 g/(kW·h) for the ordinary
+cycle throttled down to the same power. Knock retreats too: the integral drops from 0.58 to
+0.29, so the geometric compression ratio can be raised.
+
+**Direct injection** evaporates the fuel inside the cylinder and cools the charge by 23.7 K.
+Volumetric efficiency rises from 90.9 to 93.8 %, power from 49.0 to 56.6 kW, and the highest
+compression ratio free of knock climbs from **12.5 to 13.7**.
+
+## 🔩 The boxer four and balance shafts
+
+<img src="docs/boxer.png" alt="Flat-four" width="100%">
+
+Opposing pistons travel towards each other, and each one has **its own crankpin, offset by
+180°**: that is exactly what separates a boxer from a 180° V engine. The firing order is
+1–3–2–4.
+
+| Layout | 1st order | 2nd order | Longitudinal couple |
+|---|---|---|---|
+| Inline-four | 0 N | 2874 N | 0 |
+| **Flat-four** | **0 N** | **0 N** | 74 N·m |
+| V8 90° | 0 N | 0 N | 886 N·m |
+
+**Balance shafts** damp what is left: on the single cylinder the first order falls from 2334 to
+350 N, and on the inline-four the second order from 2874 to 431 N (Lanchester shafts, spinning
+at twice crankshaft speed). They can never cancel it completely — the residual 15 % is visible
+on the chart.
+
+## 🧭 Engine operating map
+
+<img src="docs/chart-map.png" alt="Engine operating map" width="52%" align="right">
+
+A 24×16 grid over the speed × load axes is computed in 0.4 seconds and shows where the engine
+is economical and where it is not. The contour lines are BSFC, the red hatching is the knock
+zone, the ring is the "island of efficiency" (242 g/(kW·h) at 3513 rpm) and the crosshair is
+the current operating point. It switches between fuel consumption, power and efficiency.
+
+This map is exactly where you can see why fuel consumption is several times worse at low load:
+useful work falls off faster than friction and pumping losses.
+
+<br clear="right">
+
+## 🌍 Two languages
+
+<img src="docs/english.png" alt="English interface" width="100%">
+
+The **RU / EN** switch in the console header changes the language of everything on the fly — the
+panel, the theory, all eight charts and the part labels in 3D. Your choice is remembered, and
+the `?lang=en` link opens the simulator in English straight away.
+
 ## 🧪 Inside the model
 
 **Kinematics.** `y(θ) = r·cos θ + √(L² − (r·sin θ)²)`, r = 43 mm, L = 143 mm.
@@ -263,6 +331,11 @@ by measurements of firing frequency, absence of node leaks and absence of clippi
 &eps=12         compression ratio
 &adv=25         ignition advance
 &octane=92      octane number
+&atkinson=45    late intake closing (Atkinson cycle), degrees
+&di=1           direct injection
+&varIntake=1    variable-length intake
+&shafts=1       balance shafts
+&lang=en        interface language: ru | en
 &cam=side       camera: side | iso | front | top
 &pause=1        open paused
 &ui=0           hide the panels, &still=1 — a single frame
@@ -308,11 +381,11 @@ piston-engine-3d-simulator/
 
 ## 💡 Possible next steps
 
-- [ ] Operating map: power and fuel consumption across speed and load
-- [ ] Variable-length intake manifold, switched automatically
-- [ ] Flat-opposed layout and balance shafts
-- [ ] Hybrid-style tricks: Atkinson cycle, cylinder deactivation
-- [ ] Gasoline direct injection and its effect on knock
+- [ ] Cylinder deactivation at low load
+- [ ] Exhaust gas recirculation and its effect on knock
+- [ ] Cam phasers with continuously variable valve timing
+- [ ] Emissions modelling: CO, NOx and soot across the operating range
+- [ ] A free-piston and a rotary engine for comparison
 
 ## 📄 License
 

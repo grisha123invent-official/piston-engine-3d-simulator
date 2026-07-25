@@ -287,6 +287,8 @@
         <button data-preset="diesel" data-ru="Дизель" data-en="Diesel">Дизель</button>
         <button data-preset="two" data-ru="Два такта" data-en="Two-stroke">Два такта</button>
         <button data-preset="v8" data-ru="V8" data-en="V8">V8</button>
+        <button data-preset="boxer" data-ru="Оппозит" data-en="Boxer">Оппозит</button>
+        <button data-preset="atkinson" data-ru="Аткинсон" data-en="Atkinson">Аткинсон</button>
         <button data-preset="idle" data-ru="Холостой" data-en="Idle">Холостой</button>
       </div>
       <div class="note" style="border:0;margin:8px 0 0;padding:0;font-size:10px;color:var(--dimmer)"
@@ -302,6 +304,7 @@
       <div class="seg">
         <button data-layout="single" class="on" data-ru="1 цилиндр" data-en="Single">1 цилиндр</button>
         <button data-layout="i4" data-ru="Рядная 4" data-en="Inline-4">Рядная 4</button>
+        <button data-layout="boxer4" data-ru="Оппозит" data-en="Boxer">Оппозит</button>
         <button data-layout="v8" data-ru="V8" data-en="V8">V8</button>
       </div>
       <div class="seg">
@@ -380,6 +383,30 @@
           data-ru="Настроенный впуск: короткий тракт двигает пик момента вверх по оборотам, длинный — вниз. Смотри график «Характеристика»."
           data-en="Tuned intake: short runners move the torque peak up the rev range, long runners move it down. See the “Speed curve” chart."></div>
       </div>
+      <div class="switches" style="margin-top:2px">
+        <label class="sw"><input type="checkbox" id="variableIntake"><span data-ru="Переменный впуск" data-en="Variable intake">Переменный впуск</span></label>
+        <label class="sw"><input type="checkbox" id="balanceShafts"><span data-ru="Балансирные валы" data-en="Balance shafts">Балансирные валы</span></label>
+      </div>
+    </div>
+  </details>
+
+  <details class="sect">
+    <summary data-ru="Смесеобразование и цикл" data-en="Mixture and cycle">Смесеобразование и цикл</summary>
+    <div class="body">
+      <div class="switches" style="margin-bottom:4px">
+        <label class="sw"><input type="checkbox" id="directInjection"><span data-ru="Прямой впрыск" data-en="Direct injection">Прямой впрыск</span></label>
+      </div>
+      <div class="note" style="border:0;padding:0;margin:0 0 8px;font-size:10px;color:var(--dimmer)"
+        data-ru="Топливо испаряется прямо в цилиндре и охлаждает заряд — растёт запас до детонации, можно поднять степень сжатия."
+        data-en="Fuel evaporates inside the cylinder and cools the charge — more knock margin, so a higher compression ratio becomes possible."></div>
+      <div class="ctl">
+        <div class="cap"><span data-ru="Цикл Аткинсона" data-en="Atkinson cycle">Цикл Аткинсона</span>
+          <b><span id="atkVal">0</span><i data-ru="° позднее IVC" data-en="° late IVC">° позднее IVC</i></b></div>
+        <input type="range" id="atkinson" min="0" max="70" value="0" step="1">
+        <div class="note"
+          data-ru="Впускной клапан закрывается позже, часть заряда выталкивается обратно: действительная степень сжатия падает, а расширения — остаётся. Выигрыш виден на частичной нагрузке и при высокой геометрической ε."
+          data-en="The intake valve closes later and part of the charge is pushed back: the effective compression ratio drops while the expansion ratio stays. The gain shows up at part load and with a high geometric ε."></div>
+      </div>
     </div>
   </details>
 
@@ -447,8 +474,11 @@
         <tr><td data-ru="Среднее индикаторное pᵢ" data-en="IMEP"></td><td id="mImep">—</td></tr>
         <tr><td data-ru="Работа за цикл" data-en="Work per cycle"></td><td id="mWork">—</td></tr>
         <tr><td data-ru="Коэффициент наполнения" data-en="Volumetric efficiency"></td><td id="mVolEff">—</td></tr>
+        <tr><td data-ru="Степень сжатия: действ. / расширения" data-en="Compression: effective / expansion"></td><td id="mRatios">—</td></tr>
+        <tr><td data-ru="Охлаждение заряда впрыском" data-en="Charge cooling by injection"></td><td id="mCooling">—</td></tr>
 
         <tr class="head"><td colspan="2" data-ru="Эффективность" data-en="Efficiency"></td></tr>
+        <tr><td data-ru="КПД замкнутого цикла" data-en="Closed-cycle efficiency"></td><td id="mEffClosed">—</td></tr>
         <tr><td data-ru="КПД индикаторный" data-en="Indicated efficiency"></td><td id="mEffInd">—</td></tr>
         <tr><td data-ru="КПД эффективный" data-en="Brake efficiency"></td><td id="mEffBrake">—</td></tr>
         <tr><td data-ru="КПД идеального цикла" data-en="Ideal cycle efficiency"></td><td id="mEffOtto">—</td></tr>

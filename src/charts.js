@@ -20,6 +20,8 @@
  *   charts.update(frame);          // каждый кадр
  */
 
+import { t, onLangChange } from './i18n.js';
+
 /* ══════════════ палитра и мелкие утилиты ══════════════ */
 
 const C = {
@@ -38,21 +40,30 @@ const C = {
   panel:     'rgba(13,17,23,.82)',
 };
 
+/** Названия тактов и фаз — общие для полос фона, легенд и подписей. */
+const PH = {
+  intake:  { ru: 'впуск',       en: 'intake' },
+  compr:   { ru: 'сжатие',      en: 'compression' },
+  power:   { ru: 'рабочий ход', en: 'power stroke' },
+  exhaust: { ru: 'выпуск',      en: 'exhaust' },
+  scav:    { ru: 'продувка',    en: 'scavenging' },
+};
+
 /** Цвета тактов — как в основном интерфейсе. */
 const STROKES = [
-  { from: 0,   to: 180, color: '#3b82f6', name: 'впуск' },
-  { from: 180, to: 360, color: '#a855f7', name: 'сжатие' },
-  { from: 360, to: 540, color: '#f97316', name: 'рабочий ход' },
-  { from: 540, to: 720, color: '#6b7280', name: 'выпуск' },
+  { from: 0,   to: 180, color: '#3b82f6', name: PH.intake },
+  { from: 180, to: 360, color: '#a855f7', name: PH.compr },
+  { from: 360, to: 540, color: '#f97316', name: PH.power },
+  { from: 540, to: 720, color: '#6b7280', name: PH.exhaust },
 ];
 
 /** Фазы двухтактного цикла (0…360, 0 = ВМТ). Границы уточняются по данным окон. */
 const TWO_STROKE = [
-  { from: 0,   to: 104, color: '#f97316', name: 'рабочий ход' },
-  { from: 104, to: 122, color: '#6b7280', name: 'выпуск' },
-  { from: 122, to: 238, color: '#3b82f6', name: 'продувка' },
-  { from: 238, to: 256, color: '#6b7280', name: 'выпуск' },
-  { from: 256, to: 360, color: '#a855f7', name: 'сжатие' },
+  { from: 0,   to: 104, color: '#f97316', name: PH.power },
+  { from: 104, to: 122, color: '#6b7280', name: PH.exhaust },
+  { from: 122, to: 238, color: '#3b82f6', name: PH.scav },
+  { from: 238, to: 256, color: '#6b7280', name: PH.exhaust },
+  { from: 256, to: 360, color: '#a855f7', name: PH.compr },
 ];
 
 const G = 9.80665;                       // ускорение свободного падения, м/с²
@@ -226,8 +237,8 @@ function drawGrid(ctx, box, sx, sy, ticksX, ticksY, fmtX, fmtY, labelX, labelY) 
   ctx.textBaseline = 'middle';
 
   // горизонтальные линии
-  for (const t of ticksY) {
-    const y = Math.round(sy(t)) + 0.5;
+  for (const tv of ticksY) {
+    const y = Math.round(sy(tv)) + 0.5;
     if (y < box.y - 1 || y > box.y + box.h + 1) continue;
     ctx.strokeStyle = C.grid;
     ctx.beginPath();
@@ -236,12 +247,12 @@ function drawGrid(ctx, box, sx, sy, ticksX, ticksY, fmtX, fmtY, labelX, labelY) 
     ctx.stroke();
     ctx.fillStyle = C.text;
     ctx.textAlign = 'right';
-    ctx.fillText(fmtY(t), box.x - 6, y);
+    ctx.fillText(fmtY(tv), box.x - 6, y);
   }
   // вертикальные линии
   ctx.textBaseline = 'top';
-  for (const t of ticksX) {
-    const x = Math.round(sx(t)) + 0.5;
+  for (const tv of ticksX) {
+    const x = Math.round(sx(tv)) + 0.5;
     if (x < box.x - 1 || x > box.x + box.w + 1) continue;
     ctx.strokeStyle = C.gridSoft;
     ctx.beginPath();
@@ -250,7 +261,7 @@ function drawGrid(ctx, box, sx, sy, ticksX, ticksY, fmtX, fmtY, labelX, labelY) 
     ctx.stroke();
     ctx.fillStyle = C.text;
     ctx.textAlign = 'center';
-    ctx.fillText(fmtX(t), x, box.y + box.h + 5);
+    ctx.fillText(fmtX(tv), x, box.y + box.h + 5);
   }
   // рамка
   ctx.strokeStyle = C.axis;
@@ -381,9 +392,10 @@ function drawPhaseBands(ctx, box, sx, bands, withNames) {
     if (!num(x0) || !num(x1)) continue;
     ctx.fillStyle = s.color + '12';
     ctx.fillRect(x0, box.y, x1 - x0, box.h);
-    if (withNames && x1 - x0 > ctx.measureText(s.name).width + 10) {
+    const nm = t(s.name);
+    if (withNames && nm && x1 - x0 > ctx.measureText(nm).width + 10) {
       ctx.fillStyle = s.color + '99';
-      ctx.fillText(s.name, (x0 + x1) / 2, box.y + 3);
+      ctx.fillText(nm, (x0 + x1) / 2, box.y + 3);
     }
   }
   ctx.restore();
@@ -436,14 +448,14 @@ function drawRightAxis(ctx, box, sy, ticks, fmt, color, label) {
   ctx.fillStyle = color;
   ctx.strokeStyle = color + '55';
   ctx.lineWidth = 1;
-  for (const t of ticks) {
-    const y = Math.round(sy(t)) + 0.5;
+  for (const tv of ticks) {
+    const y = Math.round(sy(tv)) + 0.5;
     if (!num(y) || y < box.y - 1 || y > box.y + box.h + 1) continue;
     ctx.beginPath();
     ctx.moveTo(box.x + box.w, y);
     ctx.lineTo(box.x + box.w + 4, y);
     ctx.stroke();
-    ctx.fillText(fmt(t), box.x + box.w + 6, y);
+    ctx.fillText(fmt(tv), box.x + box.w + 6, y);
   }
   if (label && ctx.measureText(label).width < box.h - 4) {
     ctx.save();
@@ -500,14 +512,17 @@ function injectCSS() {
 /* ══════════════ основной модуль ══════════════ */
 
 const TABS = [
-  { key: 'pv',         label: 'p–V' },
-  { key: 'torque',     label: 'Момент' },
-  { key: 'kinematics', label: 'Кинематика' },
-  { key: 'valves',     label: 'Фазы ГРМ' },
-  { key: 'energy',     label: 'Энергия' },
-  { key: 'sweep',      label: 'Характеристика' },
-  { key: 'balance',    label: 'Баланс' },
+  { key: 'pv',         label: { ru: 'p–V',            en: 'p–V' } },
+  { key: 'torque',     label: { ru: 'Момент',         en: 'Torque' } },
+  { key: 'kinematics', label: { ru: 'Кинематика',     en: 'Kinematics' } },
+  { key: 'valves',     label: { ru: 'Фазы ГРМ',       en: 'Valve timing' } },
+  { key: 'energy',     label: { ru: 'Энергия',        en: 'Energy' } },
+  { key: 'sweep',      label: { ru: 'Характеристика', en: 'Speed curve' } },
+  { key: 'balance',    label: { ru: 'Баланс',         en: 'Balance' } },
 ];
+
+/** Подпись переключателя логарифмических осей. */
+const OPT_LABEL = { ru: 'лог. оси', en: 'log axes' };
 
 /** Свип не пересчитывается чаще этого интервала (защита от дёрганья ползунков). */
 const SWEEP_MIN_MS = 120;
@@ -530,14 +545,14 @@ export function createCharts(root) {
   tabsEl.className = 'engch-tabs';
 
   const tabBtns = {};
-  for (const t of TABS) {
+  for (const tb of TABS) {
     const b = document.createElement('button');
     b.className = 'engch-tab';
-    b.textContent = t.label;
-    b.title = t.label;
-    b.addEventListener('click', () => api.setActive(t.key));
+    b.textContent = t(tb.label);
+    b.title = t(tb.label);
+    b.addEventListener('click', () => api.setActive(tb.key));
     tabsEl.appendChild(b);
-    tabBtns[t.key] = b;
+    tabBtns[tb.key] = b;
   }
 
   // переключатель логарифмических осей — только для p–V
@@ -546,7 +561,7 @@ export function createCharts(root) {
   const optChk = document.createElement('input');
   optChk.type = 'checkbox';
   const optTxt = document.createElement('span');
-  optTxt.textContent = 'лог. оси';
+  optTxt.textContent = t(OPT_LABEL);
   optEl.appendChild(optChk);
   optEl.appendChild(optTxt);
   optChk.addEventListener('change', () => api.setLogAxes(!!optChk.checked));
@@ -615,6 +630,18 @@ export function createCharts(root) {
   const SA = (arr, deg) => sampleAt(arr, deg, cycSpan());
   /** Деления оси угла. */
   const angleTicks = () => (twoStroke() ? [0, 90, 180, 270, 360] : [0, 180, 360, 540, 720]);
+  /** Обороты с единицами: об/мин → rpm. */
+  const rpmText = v => t({ ru: `${Math.round(v)} об/мин`, en: `${Math.round(v)} rpm` });
+  /** Длина впускного тракта с единицами. */
+  const runnerText = (mm, pre = '') => t({
+    ru: `${pre}тракт ${Math.round(mm)} мм`,
+    en: `${pre}runner ${Math.round(mm)} mm`,
+  });
+  /** Подпись оси углов — одна на четыре графика. */
+  const angleAxisLabel = span => t({
+    ru: `угол цикла θ, град (цикл ${span}°)`,
+    en: `crank angle θ, deg (cycle ${span}°)`,
+  });
 
   /**
    * Углы открытия/закрытия впуска и выпуска.
@@ -640,10 +667,20 @@ export function createCharts(root) {
       evo: pick(sEx && sEx.open, 'evo'),
       evc: pick(sEx && sEx.close, 'evc'),
       names: two
-        ? { in: 'продувочные окна', ex: 'выпускное окно', io: 'откр. продув.',
-            ic: 'закр. продув.', eo: 'откр. выпуск', ec: 'закр. выпуск', overlap: 'продувка' }
-        : { in: 'впускной клапан', ex: 'выпускной клапан', io: 'откр. впуск',
-            ic: 'закр. впуск', eo: 'откр. выпуск', ec: 'закр. выпуск', overlap: 'перекрытие клапанов' },
+        ? { in: t({ ru: 'продувочные окна', en: 'transfer ports' }),
+            ex: t({ ru: 'выпускное окно', en: 'exhaust port' }),
+            io: t({ ru: 'откр. продув.', en: 'transfer open' }),
+            ic: t({ ru: 'закр. продув.', en: 'transfer close' }),
+            eo: t({ ru: 'откр. выпуск', en: 'exhaust open' }),
+            ec: t({ ru: 'закр. выпуск', en: 'exhaust close' }),
+            overlap: t(PH.scav) }
+        : { in: t({ ru: 'впускной клапан', en: 'intake valve' }),
+            ex: t({ ru: 'выпускной клапан', en: 'exhaust valve' }),
+            io: t({ ru: 'откр. впуск', en: 'IVO' }),
+            ic: t({ ru: 'закр. впуск', en: 'IVC' }),
+            eo: t({ ru: 'откр. выпуск', en: 'EVO' }),
+            ec: t({ ru: 'закр. выпуск', en: 'EVC' }),
+            overlap: t({ ru: 'перекрытие клапанов', en: 'valve overlap' }) },
     };
   }
 
@@ -655,11 +692,11 @@ export function createCharts(root) {
     const push = (from, to, color, name) => {
       if (num(from) && num(to) && to > from + 0.5) out.push({ from, to, color, name });
     };
-    push(0, ph.evo, '#f97316', 'рабочий ход');
-    push(ph.evo, ph.ivo, '#6b7280', 'выпуск');
-    push(ph.ivo, ph.ivc, '#3b82f6', 'продувка');
-    push(ph.ivc, ph.evc, '#6b7280', 'выпуск');
-    push(ph.evc, 360, '#a855f7', 'сжатие');
+    push(0, ph.evo, '#f97316', PH.power);
+    push(ph.evo, ph.ivo, '#6b7280', PH.exhaust);
+    push(ph.ivo, ph.ivc, '#3b82f6', PH.scav);
+    push(ph.ivc, ph.evc, '#6b7280', PH.exhaust);
+    push(ph.evc, 360, '#a855f7', PH.compr);
     return out.length >= 3 ? out : TWO_STROKE;
   }
 
@@ -680,14 +717,16 @@ export function createCharts(root) {
   function layoutName() {
     const p = par();
     const l = p.layout || (st.frame && st.frame.layout);
-    if (l === 'single') return 'одноцилиндровый';
-    if (l === 'i4') return 'рядная 4';
-    if (l === 'v8') return 'V8, крестообразный вал';
+    const single = { ru: 'одноцилиндровый', en: 'single cylinder' };
+    const i4 = { ru: 'рядная 4', en: 'inline-4' };
+    if (l === 'single') return t(single);
+    if (l === 'i4') return t(i4);
+    if (l === 'v8') return t({ ru: 'V8, крестообразный вал', en: 'V8, cross-plane crank' });
     const n = num(p.cylinders) ? p.cylinders : (st.frame && num(st.frame.cylinders) ? st.frame.cylinders : NaN);
-    if (n === 1) return 'одноцилиндровый';
-    if (n === 4) return 'рядная 4';
+    if (n === 1) return t(single);
+    if (n === 4) return t(i4);
     if (n === 8) return 'V8';
-    return num(n) ? `${n} цил.` : '';
+    return num(n) ? t({ ru: `${n} цил.`, en: `${n} cyl.` }) : '';
   }
 
   /* ── шапка: заголовок слева, числа справа в той же строке ── */
@@ -753,7 +792,8 @@ export function createCharts(root) {
     drawGrid(g, box, sx, sy, tx, ty,
       v => (v >= 100 ? v.toFixed(0) : v.toFixed(v < 10 ? 1 : 0)),
       v => (v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(0) : v.toFixed(v < 1 ? 2 : 1)),
-      'объём V, см³', 'давление p, бар');
+      t({ ru: 'объём V, см³', en: 'volume V, cm³' }),
+      t({ ru: 'давление p, бар', en: 'pressure p, bar' }));
 
     // ── ВМТ / НМТ ──
     g.save();
@@ -762,7 +802,8 @@ export function createCharts(root) {
     g.strokeStyle = C.axis;
     g.font = font(10);
     g.textBaseline = 'top';
-    for (const [v, name] of [[vmin, 'ВМТ'], [vmax, 'НМТ']]) {
+    const TDC = t({ ru: 'ВМТ', en: 'TDC' }), BDC = t({ ru: 'НМТ', en: 'BDC' });
+    for (const [v, name] of [[vmin, TDC], [vmax, BDC]]) {
       const x = sx(v);
       g.beginPath();
       g.moveTo(x, box.y);
@@ -848,10 +889,15 @@ export function createCharts(root) {
         const vv = atWrap(V, im), pp = atWrap(P, im);
         if (num(vv) && num(pp)) {
           const b = curBoost();
+          const why = num(b) && b > 0.02
+            ? t({ ru: ` — наддув ${f(b, 2)} бар, p_вп > p_вып`,
+                  en: ` — boost ${f(b, 2)} bar, p_in > p_ex` })
+            : t({ ru: ' — p_вп > p_вып', en: ' — p_in > p_ex' });
           const txt = pump.work_J > 0
-            ? `петля газообмена положительная: +${f(pump.work_J, 2)} Дж` +
-              (num(b) && b > 0.02 ? ` — наддув ${f(b, 2)} бар, p_вп > p_вып` : ' — p_вп > p_вып')
-            : `петля газообмена: −${f(Math.abs(pump.work_J), 2)} Дж — насосные потери`;
+            ? t({ ru: `петля газообмена положительная: +${f(pump.work_J, 2)} Дж`,
+                  en: `pumping loop positive: +${f(pump.work_J, 2)} J` }) + why
+            : t({ ru: `петля газообмена: −${f(Math.abs(pump.work_J), 2)} Дж — насосные потери`,
+                  en: `pumping loop: −${f(Math.abs(pump.work_J), 2)} J — pumping losses` });
           tag(g, sx(vv) + 8, sy(pp) + 14, txt, pump.work_J > 0 ? C.green : C.gray, box);
         }
       }
@@ -864,10 +910,17 @@ export function createCharts(root) {
       : firstBurnDeg(c, span);
     const pmaxDeg = m && num(m.pmax_deg) ? mod(m.pmax_deg, span) : argMaxAbs(P) * step;
     const pts = [
-      { deg: ph.ivc, name: ph.two ? 'закр. продув. окон' : 'закр. впуска', color: C.blue },
-      { deg: soc, name: p.fuel === 'diesel' ? 'впрыск' : 'искра', color: C.yellow },
-      { deg: pmaxDeg, name: `p max ${f(SA(P, pmaxDeg), 1)} бар`, color: C.red },
-      { deg: ph.evo, name: ph.two ? 'откр. выпускного окна' : 'откр. выпуска', color: C.gray },
+      { deg: ph.ivc, color: C.blue,
+        name: ph.two ? t({ ru: 'закр. продув. окон', en: 'transfer ports close' })
+                     : t({ ru: 'закр. впуска', en: 'intake closes' }) },
+      { deg: soc, color: C.yellow,
+        name: p.fuel === 'diesel' ? t({ ru: 'впрыск', en: 'injection' })
+                                  : t({ ru: 'искра', en: 'spark' }) },
+      { deg: pmaxDeg, color: C.red,
+        name: t({ ru: `p max ${f(SA(P, pmaxDeg), 1)} бар`, en: `p max ${f(SA(P, pmaxDeg), 1)} bar` }) },
+      { deg: ph.evo, color: C.gray,
+        name: ph.two ? t({ ru: 'откр. выпускного окна', en: 'exhaust port opens' })
+                     : t({ ru: 'откр. выпуска', en: 'exhaust opens' }) },
     ];
     for (const pt of pts) {
       if (!num(pt.deg)) continue;
@@ -881,21 +934,31 @@ export function createCharts(root) {
     // ── легенда и работа цикла ──
     const wrk = m && num(m.workPerCycle_J) ? m.workPerCycle_J : NaN;
     const leg = [
-      { color: C.blue, text: 'реальный цикл (заливка = работа)' },
-      { color: C.green, text: 'идеальный цикл Отто', dash: [5, 4] },
+      { color: C.blue, text: t({ ru: 'реальный цикл (заливка = работа)',
+                                 en: 'actual cycle (shaded area = work)' }) },
+      { color: C.green, text: t({ ru: 'идеальный цикл Отто', en: 'ideal Otto cycle' }), dash: [5, 4] },
     ];
     if (pump && Math.abs(pump.work_J) > 0.05) {
       leg.push({
         color: pump.work_J > 0 ? C.green : C.gray,
-        text: pump.work_J > 0 ? 'петля газообмена (+, наддув)' : 'петля газообмена (−, насосные потери)',
+        text: pump.work_J > 0
+          ? t({ ru: 'петля газообмена (+, наддув)', en: 'pumping loop (+, boost)' })
+          : t({ ru: 'петля газообмена (−, насосные потери)', en: 'pumping loop (−, pumping losses)' }),
       });
     }
     drawLegend(g, box.x + 4, box.y + box.h + 47, leg, box.w);
     const lines = [];
-    if (num(wrk)) lines.push(`работа ${f(wrk, 1)} Дж/цил.`);
-    if (m && num(m.imep_bar)) lines.push(`p_i ${f(m.imep_bar, 2)} бар`);
-    if (m && num(m.effIndicated)) lines.push(`КПД инд. ${f(m.effIndicated * 100, 1)} %`);
-    if (m && num(m.effOtto)) lines.push(`Отто ${f(m.effOtto * 100, 1)} %`);
+    if (num(wrk)) lines.push(t({ ru: `работа ${f(wrk, 1)} Дж/цил.`, en: `work ${f(wrk, 1)} J/cyl.` }));
+    if (m && num(m.imep_bar)) {
+      lines.push(t({ ru: `p_i ${f(m.imep_bar, 2)} бар`, en: `p_i ${f(m.imep_bar, 2)} bar` }));
+    }
+    if (m && num(m.effIndicated)) {
+      lines.push(t({ ru: `КПД инд. ${f(m.effIndicated * 100, 1)} %`,
+                     en: `indicated eff. ${f(m.effIndicated * 100, 1)} %` }));
+    }
+    if (m && num(m.effOtto)) {
+      lines.push(t({ ru: `Отто ${f(m.effOtto * 100, 1)} %`, en: `Otto ${f(m.effOtto * 100, 1)} %` }));
+    }
     headerRight(g, 1, lines.join('  ·  '));
 
     return { sx, sy };
@@ -958,8 +1021,8 @@ export function createCharts(root) {
     const T = SA(c.T_K, d);
     const lines = [
       `θ = ${d.toFixed(0)}°`,
-      `p = ${f(p, 2)} бар`,
-      `V = ${f(v, 1)} см³`,
+      t({ ru: `p = ${f(p, 2)} бар`, en: `p = ${f(p, 2)} bar` }),
+      t({ ru: `V = ${f(v, 1)} см³`, en: `V = ${f(v, 1)} cm³` }),
       num(T) ? `T = ${Math.round(T)} K` : '',
     ].filter(Boolean);
     if (!headerRight(g, 2, lines.join('  ·  '), C.bright)) drawReadout(g, box, lines, 'left');
@@ -988,7 +1051,7 @@ export function createCharts(root) {
     const sy = linScale(mn - pad, mx + pad, box.y + box.h, box.y);
     drawGrid(g, box, sx, sy, angleTicks(), niceTicks(mn - pad, mx + pad, 5),
       v => v.toFixed(0), v => v.toFixed(Math.abs(mx) < 20 ? 1 : 0),
-      `угол цикла θ, град (цикл ${span}°)`, 'момент M, Н·м');
+      angleAxisLabel(span), t({ ru: 'момент M, Н·м', en: 'torque M, N·m' }));
     drawPhaseBands(g, box, sx, phaseBands(), !narrow());
 
     // нулевая линия
@@ -1014,24 +1077,33 @@ export function createCharts(root) {
     const m = met();
     if (num(avg)) {
       dashedH(g, box, sy(avg), C.green, [6, 4]);
-      if (!narrow()) tag(g, box.x + box.w - 6, sy(avg) - 9, `средний ${f(avg, 1)} Н·м`, C.green, box, 'right');
+      if (!narrow()) {
+        tag(g, box.x + box.w - 6, sy(avg) - 9,
+          t({ ru: `средний ${f(avg, 1)} Н·м`, en: `mean ${f(avg, 1)} N·m` }), C.green, box, 'right');
+      }
     }
     if (m && num(m.brakeTorque_Nm)) {
       dashedH(g, box, sy(m.brakeTorque_Nm), C.gray, [3, 3]);
       if (!narrow()) {
         tag(g, box.x + 6, sy(m.brakeTorque_Nm) + 10,
-          `эффективный ${f(m.brakeTorque_Nm, 1)} Н·м (за вычетом трения)`, C.gray, box);
+          t({ ru: `эффективный ${f(m.brakeTorque_Nm, 1)} Н·м (за вычетом трения)`,
+              en: `brake ${f(m.brakeTorque_Nm, 1)} N·m (friction subtracted)` }), C.gray, box);
       }
     }
 
-    const items = [{ color: C.blue, text: 'один цилиндр' }];
-    if (TT && cyl > 1) items.push({ color: C.orange, text: `сумма ${cyl} цил.` });
-    items.push({ color: C.green, text: 'средний момент', dash: [6, 4] });
+    const items = [{ color: C.blue, text: t({ ru: 'один цилиндр', en: 'single cylinder' }) }];
+    if (TT && cyl > 1) {
+      items.push({ color: C.orange,
+        text: t({ ru: `сумма ${cyl} цил.`, en: `sum of ${cyl} cyl.` }) });
+    }
+    items.push({ color: C.green, text: t({ ru: 'средний момент', en: 'mean torque' }), dash: [6, 4] });
     drawLegend(g, box.x + 4, box.y + box.h + 47, items, box.w);
 
     const lines = [];
-    if (num(par().rpm)) lines.push(`${Math.round(par().rpm)} об/мин`);
-    if (m && num(m.brakePower_kW)) lines.push(`${f(m.brakePower_kW, 1)} кВт`);
+    if (num(par().rpm)) lines.push(rpmText(par().rpm));
+    if (m && num(m.brakePower_kW)) {
+      lines.push(t({ ru: `${f(m.brakePower_kW, 1)} кВт`, en: `${f(m.brakePower_kW, 1)} kW` }));
+    }
     if (m && num(m.speedFluctuation)) lines.push(`δ = ${f(m.speedFluctuation, 3)}`);
     headerRight(g, 1, lines.join('  ·  '));
 
@@ -1080,12 +1152,12 @@ export function createCharts(root) {
     if (isArr(c.torque_Nm)) {
       const v = SA(c.torque_Nm, d);
       dot(g, x, sc.sy(v), 3.5, C.blue, '#fff');
-      lines.push(`1 цил.: ${f(v, 1)} Н·м`);
+      lines.push(t({ ru: `1 цил.: ${f(v, 1)} Н·м`, en: `1 cyl.: ${f(v, 1)} N·m` }));
     }
     if (isArr(c.torqueTotal_Nm) && num(par().cylinders) && par().cylinders > 1) {
       const v = SA(c.torqueTotal_Nm, d);
       dot(g, x, sc.sy(v), 4, C.orange, '#fff');
-      lines.push(`сумма: ${f(v, 1)} Н·м`);
+      lines.push(t({ ru: `сумма: ${f(v, 1)} Н·м`, en: `total: ${f(v, 1)} N·m` }));
     }
     if (!headerRight(g, 2, lines.join('  ·  '), C.bright)) drawReadout(g, box, lines, 'left');
   }
@@ -1119,7 +1191,7 @@ export function createCharts(root) {
   function kinStatic(g, W, H) {
     const c = cyc();
     const boxes = kinBoxes(W, H);
-    if (!boxes) { drawEmpty(g, W, H, 'Мало места для графика'); return null; }
+    if (!boxes) { drawEmpty(g, W, H, t({ ru: 'Мало места для графика', en: 'Not enough space for the chart' })); return null; }
     const span = cycSpan();
     const D = c.deg;
     const stroke_mm = num(geo().stroke_m) ? geo().stroke_m * 1000
@@ -1135,11 +1207,15 @@ export function createCharts(root) {
     const Vv = isArr(c.pistonVel_ms) ? c.pistonVel_ms : null;
     const Av = isArr(c.pistonAcc_ms2) ? c.pistonAcc_ms2 : null;
 
-    let note = 'перемещение, скорость и ускорение поршня по углу цикла';
+    let note = t({ ru: 'перемещение, скорость и ускорение поршня по углу цикла',
+                   en: 'piston displacement, velocity and acceleration versus crank angle' });
     const panels = [
-      { data: S,  color: C.blue,   title: 'перемещение от ВМТ, мм', zero: false },
-      { data: Vv, color: C.purple, title: 'скорость, м/с',          zero: true },
-      { data: Av, color: C.orange, title: 'ускорение, м/с²',        zero: true },
+      { data: S,  color: C.blue,   zero: false,
+        title: t({ ru: 'перемещение от ВМТ, мм', en: 'displacement from TDC, mm' }) },
+      { data: Vv, color: C.purple, zero: true,
+        title: t({ ru: 'скорость, м/с', en: 'velocity, m/s' }) },
+      { data: Av, color: C.orange, zero: true,
+        title: t({ ru: 'ускорение, м/с²', en: 'acceleration, m/s²' }) },
     ];
 
     const scales = [];
@@ -1150,7 +1226,8 @@ export function createCharts(root) {
         g.strokeStyle = C.grid;
         g.strokeRect(box.x + 0.5, box.y + 0.5, box.w, box.h);
         g.restore();
-        centerText(g, box.x + box.w / 2, box.y + box.h / 2, `нет данных: ${p.title}`);
+        centerText(g, box.x + box.w / 2, box.y + box.h / 2,
+          t({ ru: `нет данных: ${p.title}`, en: `no data: ${p.title}` }));
         scales.push(null);
         return;
       }
@@ -1163,7 +1240,7 @@ export function createCharts(root) {
       drawGrid(g, box, sx, sy, angleTicks(), niceTicks(mn, mx, 3),
         v => (showX ? v.toFixed(0) : ''),
         v => (Math.abs(v) >= 1000 ? (v / 1000).toFixed(0) + 'k' : v.toFixed(Math.abs(mx) < 20 ? 1 : 0)),
-        showX && !boxes.tight ? `угол цикла θ, град (цикл ${span}°)` : '', '');
+        showX && !boxes.tight ? angleAxisLabel(span) : '', '');
       // заголовок панели: над полем, а в тесноте — внутри него
       g.save();
       g.font = font(10.5, '600');
@@ -1189,9 +1266,16 @@ export function createCharts(root) {
       const b = boxes[1];
       const x = scales[1].sx(i * step), y = scales[1].sy(Vv[i]);
       dot(g, x, y, 3, C.purple);
-      tag(g, x + 7, y, `макс. |v| = ${f(Math.abs(Vv[i]), 2)} м/с при ${Math.round(mod(i * step, 360))}°`, C.purple, b);
+      tag(g, x + 7, y,
+        t({ ru: `макс. |v| = ${f(Math.abs(Vv[i]), 2)} м/с при ${Math.round(mod(i * step, 360))}°`,
+            en: `max |v| = ${f(Math.abs(Vv[i]), 2)} m/s at ${Math.round(mod(i * step, 360))}°` }),
+        C.purple, b);
       const mps = met() && num(met().meanPistonSpeed_ms) ? met().meanPistonSpeed_ms : NaN;
-      if (num(mps) && b.h > 54) tag(g, b.x + 6, b.y + 11, `средняя скорость поршня ${f(mps, 2)} м/с`, C.text, b);
+      if (num(mps) && b.h > 54) {
+        tag(g, b.x + 6, b.y + 11,
+          t({ ru: `средняя скорость поршня ${f(mps, 2)} м/с`,
+              en: `mean piston speed ${f(mps, 2)} m/s` }), C.text, b);
+      }
     }
     if (Av && scales[2]) {
       // экстремумы ускорения лежат в мёртвых точках; знак зависит от соглашения,
@@ -1205,17 +1289,25 @@ export function createCharts(root) {
         dot(g, xT, yT, 3, C.orange);
         dot(g, xB, yB, 3, C.gray);
         tag(g, xT + 7, yT + (aT > aB ? -2 : 2),
-          `ВМТ: |a| = ${f(Math.abs(aT), 0)} м/с² = ${f(Math.abs(aT) / G, 0)} g`, C.orange, b);
+          t({ ru: `ВМТ: |a| = ${f(Math.abs(aT), 0)} м/с² = ${f(Math.abs(aT) / G, 0)} g`,
+              en: `TDC: |a| = ${f(Math.abs(aT), 0)} m/s² = ${f(Math.abs(aT) / G, 0)} g` }), C.orange, b);
         tag(g, xB + 7, yB + (aT > aB ? 2 : -2),
-          `НМТ: |a| = ${f(Math.abs(aB), 0)} м/с² = ${f(Math.abs(aB) / G, 0)} g`, C.gray, b);
+          t({ ru: `НМТ: |a| = ${f(Math.abs(aB), 0)} м/с² = ${f(Math.abs(aB) / G, 0)} g`,
+              en: `BDC: |a| = ${f(Math.abs(aB), 0)} m/s² = ${f(Math.abs(aB) / G, 0)} g` }), C.gray, b);
         // ключевой учебный вывод — в подзаголовок графика
         const ratio = Math.abs(aB) > 1e-6 ? Math.abs(aT / aB) : NaN;
-        note = `у ВМТ ускорение в ${f(ratio, 2)} раза больше, чем у НМТ` +
-          (num(lambda) ? ` — влияние конечной длины шатуна, λ = r/L = ${f(lambda, 3)}` : '');
+        note = t({ ru: `у ВМТ ускорение в ${f(ratio, 2)} раза больше, чем у НМТ`,
+                   en: `acceleration at TDC is ${f(ratio, 2)}× that at BDC` }) +
+          (num(lambda)
+            ? t({ ru: ` — влияние конечной длины шатуна, λ = r/L = ${f(lambda, 3)}`,
+                  en: ` — effect of finite rod length, λ = r/L = ${f(lambda, 3)}` })
+            : '');
       }
     }
     if (S && scales[0] && boxes[0].h > 54) {
-      tag(g, boxes[0].x + 6, boxes[0].y + 11, `ход поршня S = ${f(stroke_mm, 0)} мм`, C.blue, boxes[0]);
+      tag(g, boxes[0].x + 6, boxes[0].y + 11,
+        t({ ru: `ход поршня S = ${f(stroke_mm, 0)} мм`, en: `piston stroke S = ${f(stroke_mm, 0)} mm` }),
+        C.blue, boxes[0]);
     }
     return { boxes, scales, note };
   }
@@ -1223,7 +1315,11 @@ export function createCharts(root) {
   function kinDynamic(g, sc) {
     const d = curDeg();
     if (d === null || !sc) return;
-    const units = ['мм', 'м/с', 'м/с²'];
+    const units = [
+      t({ ru: 'мм', en: 'mm' }),
+      t({ ru: 'м/с', en: 'm/s' }),
+      t({ ru: 'м/с²', en: 'm/s²' }),
+    ];
     const names = ['s', 'v', 'a'];
     const vals = [];
     sc.scales.forEach((s, i) => {
@@ -1252,8 +1348,11 @@ export function createCharts(root) {
     const sy = linScale(0, 1.08, box.y + box.h, box.y);
     drawGrid(g, box, sx, sy, angleTicks(), [0, 0.25, 0.5, 0.75, 1],
       v => v.toFixed(0), v => (v * 100).toFixed(0),
-      `угол цикла θ, град (цикл ${span}°)`,
-      ph.two ? 'открытие окон и доля сгоревшего, %' : 'подъём клапана и доля сгоревшего, %');
+      angleAxisLabel(span),
+      ph.two ? t({ ru: 'открытие окон и доля сгоревшего, %',
+                   en: 'port opening and burned fraction, %' })
+             : t({ ru: 'подъём клапана и доля сгоревшего, %',
+                   en: 'valve lift and burned fraction, %' }));
     drawPhaseBands(g, box, sx, phaseBands(), !narrow());
 
     const LI = isArr(c.liftIn) ? c.liftIn : null;
@@ -1305,9 +1404,12 @@ export function createCharts(root) {
       g.lineTo(x, box.y + box.h);
       g.stroke();
       g.restore();
-      const nm = p.fuel === 'diesel' ? 'впрыск' : 'искра';
+      const nm = p.fuel === 'diesel' ? t({ ru: 'впрыск', en: 'injection' })
+                                     : t({ ru: 'искра', en: 'spark' });
+      const btdc = f(mod(tdcDeg() - soc, span), 0);
       tag(g, x + 6, box.y + 26,
-        `${nm} ${Math.round(soc)}° (${f(mod(tdcDeg() - soc, span), 0)}° до ВМТ)`, C.yellow, box);
+        t({ ru: `${nm} ${Math.round(soc)}° (${btdc}° до ВМТ)`,
+            en: `${nm} ${Math.round(soc)}° (${btdc}° BTDC)` }), C.yellow, box);
     }
 
     // ── фазы: подписи открытия/закрытия ──
@@ -1345,7 +1447,8 @@ export function createCharts(root) {
     drawLegend(g, box.x + 4, box.y + box.h + 47, [
       { color: C.blue, text: ph.names.in },
       { color: C.orange, text: ph.names.ex },
-      { color: C.red, text: 'сгорело топлива (Вибе)', dash: [5, 3] },
+      { color: C.red, text: t({ ru: 'сгорело топлива (Вибе)',
+                                en: 'burned fuel fraction (Wiebe)' }), dash: [5, 3] },
       { color: C.green, text: ph.names.overlap },
     ], box.w);
 
@@ -1364,19 +1467,26 @@ export function createCharts(root) {
       const v = SA(c.liftIn, d);
       if (num(v)) {
         dot(g, x, sc.sy(v), 3.2, C.blue, '#fff');
-        lines.push(`${two ? 'продув. окна' : 'впуск'}: ${(v * 100).toFixed(0)} %`);
+        const nm = two ? t({ ru: 'продув. окна', en: 'transfer ports' })
+                       : t({ ru: 'впуск', en: 'intake' });
+        lines.push(`${nm}: ${(v * 100).toFixed(0)} %`);
       }
     }
     if (isArr(c.liftEx)) {
       const v = SA(c.liftEx, d);
       if (num(v)) {
         dot(g, x, sc.sy(v), 3.2, C.orange, '#fff');
-        lines.push(`${two ? 'вып. окно' : 'выпуск'}: ${(v * 100).toFixed(0)} %`);
+        const nm = two ? t({ ru: 'вып. окно', en: 'exhaust port' })
+                       : t({ ru: 'выпуск', en: 'exhaust' });
+        lines.push(`${nm}: ${(v * 100).toFixed(0)} %`);
       }
     }
     if (isArr(c.xb)) {
       const v = SA(c.xb, d);
-      if (num(v)) lines.push(`сгорело: ${(v * 100).toFixed(0)} %`);
+      if (num(v)) {
+        lines.push(t({ ru: `сгорело: ${(v * 100).toFixed(0)} %`,
+                       en: `burned: ${(v * 100).toFixed(0)} %` }));
+      }
     }
     if (!headerRight(g, 2, lines.join('  ·  '), C.bright)) drawReadout(g, box, lines, 'left');
   }
@@ -1386,13 +1496,21 @@ export function createCharts(root) {
   function energyStatic(g, W, H) {
     const m = met();
     const e = m && m.energy ? m.energy : null;
-    if (!e) { drawEmpty(g, W, H, 'Нет данных энергетического баланса'); return; }
+    if (!e) {
+      drawEmpty(g, W, H, t({ ru: 'Нет данных энергетического баланса',
+                             en: 'No energy balance data' }));
+      return;
+    }
 
     const parts = [
-      { key: 'work_pct',     name: 'Полезная работа',      color: C.green },
-      { key: 'exhaust_pct',  name: 'Потери с выхлопом',    color: C.orange },
-      { key: 'coolant_pct',  name: 'Отвод в охлаждение',   color: C.blue },
-      { key: 'friction_pct', name: 'Механическое трение',  color: C.purple },
+      { key: 'work_pct',     color: C.green,
+        name: t({ ru: 'Полезная работа', en: 'Useful work' }) },
+      { key: 'exhaust_pct',  color: C.orange,
+        name: t({ ru: 'Потери с выхлопом', en: 'Exhaust losses' }) },
+      { key: 'coolant_pct',  color: C.blue,
+        name: t({ ru: 'Отвод в охлаждение', en: 'Heat to coolant' }) },
+      { key: 'friction_pct', color: C.purple,
+        name: t({ ru: 'Механическое трение', en: 'Mechanical friction' }) },
     ].map(p => ({ ...p, val: num(e[p.key]) ? Math.max(0, e[p.key]) : 0 }));
 
     const total = parts.reduce((s, p) => s + p.val, 0) || 100;
@@ -1401,7 +1519,7 @@ export function createCharts(root) {
     const bw = W - left - right;
     const by = 46;
     const bh = Math.min(52, Math.max(26, H * 0.18));
-    if (bw < 60) { drawEmpty(g, W, H, 'Слишком узко'); return; }
+    if (bw < 60) { drawEmpty(g, W, H, t({ ru: 'Слишком узко', en: 'Too narrow' })); return; }
 
     // ── стековая полоса ──
     let x = left;
@@ -1433,13 +1551,13 @@ export function createCharts(root) {
     g.strokeStyle = C.grid;
     g.textAlign = 'center';
     g.textBaseline = 'top';
-    for (let t = 0; t <= 100; t += 10) {
-      const px = left + (t / 100) * bw;
+    for (let tk = 0; tk <= 100; tk += 10) {
+      const px = left + (tk / 100) * bw;
       g.beginPath();
       g.moveTo(px, by + bh);
       g.lineTo(px, by + bh + 4);
       g.stroke();
-      if (t % 20 === 0) g.fillText(t + ' %', px, by + bh + 6);
+      if (tk % 20 === 0) g.fillText(tk + ' %', px, by + bh + 6);
     }
     g.restore();
 
@@ -1465,12 +1583,29 @@ export function createCharts(root) {
 
     // ── сводка цифр ──
     const rows = [];
-    if (num(m.brakePower_kW)) rows.push(['Эффективная мощность', `${f(m.brakePower_kW, 1)} кВт`]);
-    if (num(m.indPower_kW)) rows.push(['Индикаторная мощность', `${f(m.indPower_kW, 1)} кВт`]);
-    if (num(m.brakeTorque_Nm)) rows.push(['Эффективный момент', `${f(m.brakeTorque_Nm, 1)} Н·м`]);
-    if (num(m.effBrake)) rows.push(['Эффективный КПД', `${f(m.effBrake * 100, 1)} %`]);
-    if (num(m.bsfc_g_kWh)) rows.push(['Удельный расход', `${f(m.bsfc_g_kWh, 0)} г/(кВт·ч)`]);
-    if (num(m.volEff)) rows.push(['Коэф. наполнения', `${f(m.volEff * 100, 0)} %`]);
+    if (num(m.brakePower_kW)) {
+      rows.push([t({ ru: 'Эффективная мощность', en: 'Brake power' }),
+        t({ ru: `${f(m.brakePower_kW, 1)} кВт`, en: `${f(m.brakePower_kW, 1)} kW` })]);
+    }
+    if (num(m.indPower_kW)) {
+      rows.push([t({ ru: 'Индикаторная мощность', en: 'Indicated power' }),
+        t({ ru: `${f(m.indPower_kW, 1)} кВт`, en: `${f(m.indPower_kW, 1)} kW` })]);
+    }
+    if (num(m.brakeTorque_Nm)) {
+      rows.push([t({ ru: 'Эффективный момент', en: 'Brake torque' }),
+        t({ ru: `${f(m.brakeTorque_Nm, 1)} Н·м`, en: `${f(m.brakeTorque_Nm, 1)} N·m` })]);
+    }
+    if (num(m.effBrake)) {
+      rows.push([t({ ru: 'Эффективный КПД', en: 'Brake efficiency' }), `${f(m.effBrake * 100, 1)} %`]);
+    }
+    if (num(m.bsfc_g_kWh)) {
+      rows.push([t({ ru: 'Удельный расход', en: 'BSFC' }),
+        t({ ru: `${f(m.bsfc_g_kWh, 0)} г/(кВт·ч)`, en: `${f(m.bsfc_g_kWh, 0)} g/(kW·h)` })]);
+    }
+    if (num(m.volEff)) {
+      rows.push([t({ ru: 'Коэф. наполнения', en: 'Volumetric efficiency' }),
+        `${f(m.volEff * 100, 0)} %`]);
+    }
     if (rows.length && ly + 10 < H) {
       g.save();
       g.strokeStyle = C.grid;
@@ -1494,8 +1629,9 @@ export function createCharts(root) {
       g.restore();
     }
 
-    drawTitle(g, 'Энергетический баланс двигателя',
-      'куда уходит теплота сгорания топлива, % от подведённой');
+    drawTitle(g, t({ ru: 'Энергетический баланс двигателя', en: 'Engine energy balance' }),
+      t({ ru: 'куда уходит теплота сгорания топлива, % от подведённой',
+          en: 'where the fuel heat goes, % of heat supplied' }));
   }
 
   /* ══════════ 6. Внешняя скоростная характеристика ══════════ */
@@ -1579,11 +1715,11 @@ export function createCharts(root) {
       if (!num(xs[i]) || !num(xs[i - 1])) continue;
       if (x <= xs[i]) {
         const dx = xs[i] - xs[i - 1];
-        const t = dx ? (x - xs[i - 1]) / dx : 0;
+        const kx = dx ? (x - xs[i - 1]) / dx : 0;
         const a = ys[i - 1], bq = ys[i];
         if (!num(a)) return num(bq) ? bq : NaN;
         if (!num(bq)) return a;
-        return a + (bq - a) * t;
+        return a + (bq - a) * kx;
       }
     }
     return num(ys[n - 1]) ? ys[n - 1] : NaN;
@@ -1608,19 +1744,25 @@ export function createCharts(root) {
 
   function sweepStatic(g, W, H) {
     if (!st.engine || typeof st.engine.sweepRpm !== 'function') {
-      drawEmpty(g, W, H,
-        'Скоростная характеристика недоступна: движок не умеет sweepRpm()');
+      drawEmpty(g, W, H, t({
+        ru: 'Скоростная характеристика недоступна: движок не умеет sweepRpm()',
+        en: 'Speed curve unavailable: engine has no sweepRpm()' }));
       return null;
     }
     const s = getSweep();
     if (!s || !isArr(s.rpm)) {
       drawEmpty(g, W, H, st.sweepFail
-        ? 'Свип не выполнен: engine.sweepRpm() вернул ошибку'
-        : 'Свип не дал данных');
+        ? t({ ru: 'Свип не выполнен: engine.sweepRpm() вернул ошибку',
+              en: 'Sweep failed: engine.sweepRpm() returned an error' })
+        : t({ ru: 'Свип не дал данных', en: 'Sweep returned no data' }));
       return null;
     }
     const boxes = sweepBoxes(W, H);
-    if (!boxes) { drawEmpty(g, W, H, 'Мало места для характеристики'); return null; }
+    if (!boxes) {
+      drawEmpty(g, W, H, t({ ru: 'Мало места для характеристики',
+                             en: 'Not enough space for the speed curve' }));
+      return null;
+    }
 
     const R = s.rpm;
     const n = R.length;
@@ -1630,7 +1772,11 @@ export function createCharts(root) {
     const VE = pick('volEff');
     const BO = pick('boost_bar');
     const KI = pick('knockIntegral');
-    if (!PW && !TQ) { drawEmpty(g, W, H, 'В свипе нет ни мощности, ни момента'); return null; }
+    if (!PW && !TQ) {
+      drawEmpty(g, W, H, t({ ru: 'В свипе нет ни мощности, ни момента',
+                             en: 'Sweep has neither power nor torque' }));
+      return null;
+    }
     // нечего рисовать на второй панели — отдаём её место основной
     if (boxes.two && !VE && !BO) {
       boxes.main = { x: boxes.main.x, y: boxes.main.y, w: boxes.main.w,
@@ -1651,10 +1797,11 @@ export function createCharts(root) {
     const tickX = niceTicks(r0, r1, narrow() ? 3 : 5);
     drawGrid(g, box, sx, syT, tickX, niceTicks(0, tqMax, 4),
       boxes.two ? () => '' : v => v.toFixed(0), v => v.toFixed(0),
-      boxes.two ? '' : 'обороты n, об/мин', 'момент M, Н·м');
+      boxes.two ? '' : t({ ru: 'обороты n, об/мин', en: 'speed n, rpm' }),
+      t({ ru: 'момент M, Н·м', en: 'torque M, N·m' }));
     if (PW) {
       drawRightAxis(g, box, syP, niceTicks(0, pwMax, 4), v => v.toFixed(0), C.blue,
-        box.h > 90 ? 'мощность, кВт' : '');
+        box.h > 90 ? t({ ru: 'мощность, кВт', en: 'power, kW' }) : '');
     }
 
     // ── зона детонации ──
@@ -1671,7 +1818,7 @@ export function createCharts(root) {
             g.fillRect(x0, box.y, Math.max(x1 - x0, 2), box.h);
             if (!labelled && !narrow()) {
               labelled = true;
-              tag(g, (x0 + x1) / 2, box.y + 12, 'детонация', C.red, box);
+              tag(g, (x0 + x1) / 2, box.y + 12, t({ ru: 'детонация', en: 'knock' }), C.red, box);
             }
           }
           k0 = -1;
@@ -1690,14 +1837,18 @@ export function createCharts(root) {
       const x = sx(pkT.x), y = syT(pkT.y);
       dot(g, x, y, 3.4, C.orange, '#fff');
       if (!narrow()) {
-        tag(g, x + 8, y + 12, `M max ${f(pkT.y, 1)} Н·м при ${Math.round(pkT.x)} об/мин`, C.orange, box);
+        tag(g, x + 8, y + 12,
+          t({ ru: `M max ${f(pkT.y, 1)} Н·м при ${Math.round(pkT.x)} об/мин`,
+              en: `M max ${f(pkT.y, 1)} N·m at ${Math.round(pkT.x)} rpm` }), C.orange, box);
       }
     }
     if (pkP) {
       const x = sx(pkP.x), y = syP(pkP.y);
       dot(g, x, y, 3.4, C.blue, '#fff');
       if (!narrow()) {
-        tag(g, x + 8, y - 11, `P max ${f(pkP.y, 1)} кВт при ${Math.round(pkP.x)} об/мин`, C.blue, box);
+        tag(g, x + 8, y - 11,
+          t({ ru: `P max ${f(pkP.y, 1)} кВт при ${Math.round(pkP.x)} об/мин`,
+              en: `P max ${f(pkP.y, 1)} kW at ${Math.round(pkP.x)} rpm` }), C.blue, box);
       }
     }
 
@@ -1717,14 +1868,14 @@ export function createCharts(root) {
       const syV = linScale(0, veMax, sb.y + sb.h, sb.y);
       drawGrid(g, sb, sx, syV, tickX, niceTicks(0, veMax, 3),
         v => v.toFixed(0), v => v.toFixed(0),
-        'обороты n, об/мин', 'ηv, %');
+        t({ ru: 'обороты n, об/мин', en: 'speed n, rpm' }), 'ηv, %');
       const boMax = BO ? Math.max(0.2, extent(BO)[1] * 1.25) : 1;
       const syB = linScale(0, boMax, sb.y + sb.h, sb.y);
       if (vePct) polyline(g, R, vePct, sx, syV, 0, n - 1, C.blue, 1.7, [5, 3]);
       if (BO) {
         polyline(g, R, BO, sx, syB, 0, n - 1, C.purple, 1.7, [2, 3]);
         drawRightAxis(g, sb, syB, niceTicks(0, boMax, 3), v => v.toFixed(1), C.purple,
-          sb.h > 70 ? 'наддув, бар' : '');
+          sb.h > 70 ? t({ ru: 'наддув, бар', en: 'boost, bar' }) : '');
       }
       // резонансный горб наполнения — главное, ради чего этот график
       const pkV = vePct ? peakOf(R, vePct) : null;
@@ -1732,9 +1883,11 @@ export function createCharts(root) {
         const x = sx(pkV.x), y = syV(pkV.y);
         dot(g, x, y, 3.2, C.blue, '#fff');
         if (!narrow()) {
-          const Lmm = num(par().intakeLen_mm) ? `, тракт ${Math.round(par().intakeLen_mm)} мм` : '';
+          const Lmm = num(par().intakeLen_mm) ? runnerText(par().intakeLen_mm, ', ') : '';
           tag(g, x + 8, y + 11,
-            `резонансный горб: ηv ${f(pkV.y, 0)} % при ${Math.round(pkV.x)} об/мин${Lmm}`, C.blue, sb);
+            t({ ru: `резонансный горб: ηv ${f(pkV.y, 0)} % при ${Math.round(pkV.x)} об/мин${Lmm}`,
+                en: `resonance peak: ηv ${f(pkV.y, 0)} % at ${Math.round(pkV.x)} rpm${Lmm}` }),
+            C.blue, sb);
         }
       }
       sub = { box: sb, syV, syB, vePct, pkV };
@@ -1742,17 +1895,35 @@ export function createCharts(root) {
 
     // ── легенда и цифры в шапке ──
     const items = [];
-    if (TQ) items.push({ color: C.orange, text: 'момент, Н·м (левая ось)' });
-    if (PW) items.push({ color: C.blue, text: 'мощность, кВт (правая ось)' });
-    if (sub && sub.vePct) items.push({ color: C.blue, text: 'коэф. наполнения, %', dash: [5, 3] });
-    if (sub && BO) items.push({ color: C.purple, text: 'наддув, бар', dash: [2, 3] });
+    if (TQ) {
+      items.push({ color: C.orange,
+        text: t({ ru: 'момент, Н·м (левая ось)', en: 'torque, N·m (left axis)' }) });
+    }
+    if (PW) {
+      items.push({ color: C.blue,
+        text: t({ ru: 'мощность, кВт (правая ось)', en: 'power, kW (right axis)' }) });
+    }
+    if (sub && sub.vePct) {
+      items.push({ color: C.blue, dash: [5, 3],
+        text: t({ ru: 'коэф. наполнения, %', en: 'volumetric efficiency, %' }) });
+    }
+    if (sub && BO) {
+      items.push({ color: C.purple, dash: [2, 3],
+        text: t({ ru: 'наддув, бар', en: 'boost, bar' }) });
+    }
     drawLegend(g, box.x + 4, (boxes.two ? boxes.sub : box).y + (boxes.two ? boxes.sub.h : box.h) + 46,
       items, box.w);
 
     const head2 = [];
-    if (pkP) head2.push(`P max ${f(pkP.y, 1)} кВт @ ${Math.round(pkP.x)}`);
-    if (pkT) head2.push(`M max ${f(pkT.y, 1)} Н·м @ ${Math.round(pkT.x)}`);
-    if (num(par().intakeLen_mm)) head2.push(`тракт ${Math.round(par().intakeLen_mm)} мм`);
+    if (pkP) {
+      head2.push(t({ ru: `P max ${f(pkP.y, 1)} кВт @ ${Math.round(pkP.x)}`,
+                     en: `P max ${f(pkP.y, 1)} kW @ ${Math.round(pkP.x)}` }));
+    }
+    if (pkT) {
+      head2.push(t({ ru: `M max ${f(pkT.y, 1)} Н·м @ ${Math.round(pkT.x)}`,
+                     en: `M max ${f(pkT.y, 1)} N·m @ ${Math.round(pkT.x)}` }));
+    }
+    if (num(par().intakeLen_mm)) head2.push(runnerText(par().intakeLen_mm));
     headerRight(g, 1, head2.join('  ·  '));
 
     return { sx, syT, syP, sub, boxes, R, PW, TQ, VE: sub && sub.vePct, BO };
@@ -1768,14 +1939,20 @@ export function createCharts(root) {
     if (!inBox) return;
     vline(g, sc.boxes.main, x);
     if (sc.sub) vline(g, sc.sub.box, x);
-    const lines = [`${Math.round(rpm)} об/мин`];
+    const lines = [rpmText(rpm)];
     if (sc.TQ) {
       const v = interpAt(sc.R, sc.TQ, rpm);
-      if (num(v)) { dot(g, x, sc.syT(v), 3.6, C.orange, '#fff'); lines.push(`M = ${f(v, 1)} Н·м`); }
+      if (num(v)) {
+        dot(g, x, sc.syT(v), 3.6, C.orange, '#fff');
+        lines.push(t({ ru: `M = ${f(v, 1)} Н·м`, en: `M = ${f(v, 1)} N·m` }));
+      }
     }
     if (sc.PW) {
       const v = interpAt(sc.R, sc.PW, rpm);
-      if (num(v)) { dot(g, x, sc.syP(v), 3.6, C.blue, '#fff'); lines.push(`P = ${f(v, 1)} кВт`); }
+      if (num(v)) {
+        dot(g, x, sc.syP(v), 3.6, C.blue, '#fff');
+        lines.push(t({ ru: `P = ${f(v, 1)} кВт`, en: `P = ${f(v, 1)} kW` }));
+      }
     }
     if (sc.sub && sc.VE) {
       const v = interpAt(sc.R, sc.VE, rpm);
@@ -1783,7 +1960,10 @@ export function createCharts(root) {
     }
     if (sc.sub && sc.BO) {
       const v = interpAt(sc.R, sc.BO, rpm);
-      if (num(v)) { dot(g, x, sc.sub.syB(v), 3.2, C.purple, '#fff'); lines.push(`наддув ${f(v, 2)} бар`); }
+      if (num(v)) {
+        dot(g, x, sc.sub.syB(v), 3.2, C.purple, '#fff');
+        lines.push(t({ ru: `наддув ${f(v, 2)} бар`, en: `boost ${f(v, 2)} bar` }));
+      }
     }
     if (!headerRight(g, 2, lines.join('  ·  '), C.bright)) drawReadout(g, sc.boxes.main, lines, 'left');
   }
@@ -1797,23 +1977,37 @@ export function createCharts(root) {
     const SXa = c && isArr(c.shakeX_N) ? c.shakeX_N : null;
     const SYa = c && isArr(c.shakeY_N) ? c.shakeY_N : null;
     if (!SXa && !SYa && !bal) {
-      drawEmpty(g, W, H,
-        'Данных уравновешенности нет: engine.cycle.shakeX_N / engine.metrics.balance');
+      drawEmpty(g, W, H, t({
+        ru: 'Данных уравновешенности нет: engine.cycle.shakeX_N / engine.metrics.balance',
+        en: 'No balance data: engine.cycle.shakeX_N / engine.metrics.balance' }));
       return null;
     }
 
     const left = 54, right = 16, top = 36;
     const bw = W - left - right;
-    if (bw < 80 || H < 120) { drawEmpty(g, W, H, 'Мало места для графика'); return null; }
+    if (bw < 80 || H < 120) { drawEmpty(g, W, H, t({ ru: 'Мало места для графика', en: 'Not enough space for the chart' })); return null; }
 
     // ── что показываем в столбиках ──
     const rows = [];
     if (bal) {
-      if (num(bal.primary_N)) rows.push({ name: '1-й порядок (частота = обороты)', v: bal.primary_N, u: 'Н', color: C.orange });
-      if (num(bal.secondary_N)) rows.push({ name: '2-й порядок (2× обороты)', v: bal.secondary_N, u: 'Н', color: C.purple });
-      if (num(bal.couple_Nm)) rows.push({ name: 'продольный момент', v: bal.couple_Nm, u: 'Н·м', color: C.blue });
+      const uN = t({ ru: 'Н', en: 'N' });
+      if (num(bal.primary_N)) {
+        rows.push({ v: bal.primary_N, u: uN, color: C.orange,
+          name: t({ ru: '1-й порядок (частота = обороты)',
+                    en: 'first order (frequency = crank speed)' }) });
+      }
+      if (num(bal.secondary_N)) {
+        rows.push({ v: bal.secondary_N, u: uN, color: C.purple,
+          name: t({ ru: '2-й порядок (2× обороты)', en: 'second order (2× crank speed)' }) });
+      }
+      if (num(bal.couple_Nm)) {
+        rows.push({ v: bal.couple_Nm, u: t({ ru: 'Н·м', en: 'N·m' }), color: C.blue,
+          name: t({ ru: 'продольный момент', en: 'longitudinal couple' }) });
+      }
     }
-    const verdict = bal && typeof bal.verdict === 'string' && bal.verdict.trim() ? bal.verdict.trim() : '';
+    // вердикт приходит из physics.js: сейчас это пара { ru, en }, но t() терпит и строку
+    const verdictRaw = bal ? t(bal.verdict) : '';
+    const verdict = typeof verdictRaw === 'string' ? verdictRaw.trim() : '';
 
     g.save();
     g.font = font(10.5);
@@ -1848,7 +2042,7 @@ export function createCharts(root) {
       drawGrid(g, curveBox, sx, sy, angleTicks(), niceTicks(-a, a, 4),
         v => v.toFixed(0),
         v => (Math.abs(v) >= 10000 ? (v / 1000).toFixed(0) + 'k' : v.toFixed(0)),
-        `угол цикла θ, град (цикл ${span}°)`, 'сила инерции, Н');
+        angleAxisLabel(span), t({ ru: 'сила инерции, Н', en: 'inertia force, N' }));
       dashedH(g, curveBox, sy(0), C.axis, [2, 3]);
       const D = isArr(c.deg) ? c.deg : null;
       const mkX = arr => {
@@ -1861,18 +2055,22 @@ export function createCharts(root) {
       if (SXa) polyline(g, mkX(SXa), SXa, sx, sy, 0, SXa.length - 1, C.blue, 1.8);
       if (SYa) polyline(g, mkX(SYa), SYa, sx, sy, 0, SYa.length - 1, C.orange, 1.9);
       // пики
-      for (const [arr, col, nm] of [[SYa, C.orange, 'вертикальная'], [SXa, C.blue, 'горизонтальная']]) {
+      const nmV = t({ ru: 'вертикальная', en: 'vertical' });
+      const nmH = t({ ru: 'горизонтальная', en: 'horizontal' });
+      for (const [arr, col, nm] of [[SYa, C.orange, nmV], [SXa, C.blue, nmH]]) {
         if (!arr || narrow()) continue;
         const i = argMaxAbs(arr);
         const stp = span / (arr.length - 1);
         const x = sx(i * stp), y = sy(arr[i]);
         dot(g, x, y, 3, col);
         tag(g, x + 7, y + (arr === SYa ? -10 : 10),
-          `${nm}: макс |F| = ${f(Math.abs(arr[i]), 0)} Н`, col, curveBox);
+          t({ ru: `${nm}: макс |F| = ${f(Math.abs(arr[i]), 0)} Н`,
+              en: `${nm}: max |F| = ${f(Math.abs(arr[i]), 0)} N` }), col, curveBox);
       }
       drawLegend(g, curveBox.x + 4, curveBox.y + curveBox.h + 46, [
-        SYa ? { color: C.orange, text: 'F вертикальная (вдоль цилиндра)' } : null,
-        SXa ? { color: C.blue, text: 'F горизонтальная' } : null,
+        SYa ? { color: C.orange, text: t({ ru: 'F вертикальная (вдоль цилиндра)',
+                                           en: 'F vertical (along the cylinder)' }) } : null,
+        SXa ? { color: C.blue, text: t({ ru: 'F горизонтальная', en: 'F horizontal' }) } : null,
       ].filter(Boolean), curveBox.w);
     }
 
@@ -1885,7 +2083,8 @@ export function createCharts(root) {
       g.fillStyle = C.text;
       g.textAlign = 'left';
       g.textBaseline = 'alphabetic';
-      g.fillText('Амплитуды неуравновешенных сил и момента', left, y);
+      g.fillText(t({ ru: 'Амплитуды неуравновешенных сил и момента',
+                     en: 'Amplitudes of unbalanced forces and couple' }), left, y);
       g.restore();
       y += 14;
 
@@ -1919,7 +2118,11 @@ export function createCharts(root) {
       g.fillStyle = C.text;
       g.textAlign = 'left';
       g.textBaseline = 'alphabetic';
-      if (y + 10 < H) g.fillText('длина столбика — доля от наибольшего из трёх (единицы разные)', left, y + 8);
+      if (y + 10 < H) {
+        g.fillText(t({ ru: 'длина столбика — доля от наибольшего из трёх (единицы разные)',
+                       en: 'bar length is the share of the largest of the three (units differ)' }),
+          left, y + 8);
+      }
       g.restore();
       y += 16;
     }
@@ -1940,7 +2143,7 @@ export function createCharts(root) {
     }
 
     const lay = layoutName();
-    if (lay) headerRight(g, 1, `компоновка: ${lay}`);
+    if (lay) headerRight(g, 1, t({ ru: `компоновка: ${lay}`, en: `layout: ${lay}` }));
     return null;
   }
 
@@ -1967,50 +2170,60 @@ export function createCharts(root) {
     bgCtx.textBaseline = 'alphabetic';
 
     const c = cyc();
-    if (!st.engine) { drawEmpty(bgCtx, W, H, 'Двигатель не подключён'); return; }
+    if (!st.engine) {
+      drawEmpty(bgCtx, W, H, t({ ru: 'Двигатель не подключён', en: 'No engine connected' }));
+      return;
+    }
     // таблицы цикла нужны не всем графикам: свип берёт данные из sweepRpm(),
     // а баланс может показать хотя бы столбики из metrics.balance
     const NEEDS_CYCLE = st.active === 'pv' || st.active === 'torque' ||
       st.active === 'kinematics' || st.active === 'valves';
     if (NEEDS_CYCLE && (!c || !isArr(c.deg))) {
-      drawEmpty(bgCtx, W, H, 'Нет таблиц цикла (engine.cycle)');
+      drawEmpty(bgCtx, W, H, t({ ru: 'Нет таблиц цикла (engine.cycle)',
+                                 en: 'No cycle tables (engine.cycle)' }));
       return;
     }
-    if (W < 180 || H < 120) { drawEmpty(bgCtx, W, H, 'Мало места для графика'); return; }
+    if (W < 180 || H < 120) { drawEmpty(bgCtx, W, H, t({ ru: 'Мало места для графика', en: 'Not enough space for the chart' })); return; }
 
     try {
       switch (st.active) {
         case 'pv': {
           if (!isArr(c.V_cm3) || !isArr(c.p_bar)) {
-            drawEmpty(bgCtx, W, H, 'Нет данных p–V'); break;
+            drawEmpty(bgCtx, W, H, t({ ru: 'Нет данных p–V', en: 'No p–V data' })); break;
           }
-          drawTitle(bgCtx, 'Индикаторная диаграмма p–V',
-            `площадь петли — работа за цикл${st.log ? ' · логарифмические оси' : ''}`);
+          drawTitle(bgCtx,
+            t({ ru: 'Индикаторная диаграмма p–V', en: 'Indicator diagram (p–V)' }),
+            t({ ru: 'площадь петли — работа за цикл', en: 'loop area is the work per cycle' }) +
+            (st.log ? t({ ru: ' · логарифмические оси', en: ' · logarithmic axes' }) : ''));
           curBox = boxFor(W, H);
           scales = pvStatic(bgCtx, curBox);
           break;
         }
         case 'torque': {
           if (!isArr(c.torque_Nm) && !isArr(c.torqueTotal_Nm)) {
-            drawEmpty(bgCtx, W, H, 'Нет данных момента'); break;
+            drawEmpty(bgCtx, W, H, t({ ru: 'Нет данных момента', en: 'No torque data' })); break;
           }
-          drawTitle(bgCtx, 'Момент на коленчатом валу',
-            'отрицательные участки — затраты на сжатие и газообмен');
+          drawTitle(bgCtx, t({ ru: 'Момент на коленчатом валу', en: 'Crankshaft torque' }),
+            t({ ru: 'отрицательные участки — затраты на сжатие и газообмен',
+                en: 'negative regions are the cost of compression and gas exchange' }));
           curBox = boxFor(W, H);
           scales = torqueStatic(bgCtx, curBox);
           break;
         }
         case 'kinematics': {
           scales = kinStatic(bgCtx, W, H);
-          drawTitle(bgCtx, 'Кинематика поршня', (scales && scales.note) || '');
+          drawTitle(bgCtx, t({ ru: 'Кинематика поршня', en: 'Piston kinematics' }),
+            (scales && scales.note) || '');
           break;
         }
         case 'valves': {
           if (!isArr(c.liftIn) && !isArr(c.liftEx) && !isArr(c.xb)) {
-            drawEmpty(bgCtx, W, H, 'Нет данных фаз газораспределения'); break;
+            drawEmpty(bgCtx, W, H, t({ ru: 'Нет данных фаз газораспределения',
+                                       en: 'No valve timing data' })); break;
           }
-          drawTitle(bgCtx, 'Диаграмма фаз газораспределения',
-            'подъём клапанов, тепловыделение по Вибе и перекрытие');
+          drawTitle(bgCtx, t({ ru: 'Диаграмма фаз газораспределения', en: 'Valve timing diagram' }),
+            t({ ru: 'подъём клапанов, тепловыделение по Вибе и перекрытие',
+                en: 'valve lift, Wiebe heat release and overlap' }));
           curBox = boxFor(W, H);
           scales = valvesStatic(bgCtx, curBox);
           break;
@@ -2020,15 +2233,19 @@ export function createCharts(root) {
           break;
         case 'sweep': {
           const two = twoStroke();
-          drawTitle(bgCtx, 'Внешняя скоростная характеристика',
-            two ? 'мощность и момент по оборотам, двухтактный'
-                : 'мощность и момент по оборотам; пунктиром — наполнение и наддув');
+          drawTitle(bgCtx,
+            t({ ru: 'Внешняя скоростная характеристика', en: 'Full-load speed curve' }),
+            two ? t({ ru: 'мощность и момент по оборотам, двухтактный',
+                      en: 'power and torque versus speed, two-stroke' })
+                : t({ ru: 'мощность и момент по оборотам; пунктиром — наполнение и наддув',
+                      en: 'power and torque versus speed; dashed — volumetric efficiency and boost' }));
           scales = sweepStatic(bgCtx, W, H);
           break;
         }
         case 'balance': {
-          drawTitle(bgCtx, 'Уравновешенность компоновки',
-            'неуравновешенные силы инерции и амплитуды первого и второго порядка');
+          drawTitle(bgCtx, t({ ru: 'Уравновешенность компоновки', en: 'Balance of the layout' }),
+            t({ ru: 'неуравновешенные силы инерции и амплитуды первого и второго порядка',
+                en: 'unbalanced inertia forces and first/second order amplitudes' }));
           scales = balanceStatic(bgCtx, W, H);
           break;
         }
@@ -2036,7 +2253,7 @@ export function createCharts(root) {
     } catch (err) {
       // график не должен ронять приложение
       bgCtx.setTransform(st.dpr, 0, 0, st.dpr, 0, 0);
-      drawEmpty(bgCtx, W, H, 'Ошибка отрисовки графика');
+      drawEmpty(bgCtx, W, H, t({ ru: 'Ошибка отрисовки графика', en: 'Chart rendering error' }));
       if (typeof console !== 'undefined') console.error('[charts]', err);
     }
   }
@@ -2098,6 +2315,8 @@ export function createCharts(root) {
 
   /* ══════════ публичный API ══════════ */
 
+  let offLang = null;      // отписка от смены языка (снимается в dispose)
+
   const api = {
     /** Подключить объект engine из physics.js и пересчитать статичные кривые. */
     setEngine(engine) {
@@ -2116,11 +2335,11 @@ export function createCharts(root) {
     },
     /** 'pv' | 'torque' | 'kinematics' | 'valves' | 'energy' | 'sweep' | 'balance' */
     setActive(name) {
-      if (!TABS.some(t => t.key === name)) return api;
+      if (!TABS.some(tb => tb.key === name)) return api;
       st.active = name;
-      for (const t of TABS) {
-        const b = tabBtns[t.key];
-        if (b && b.classList) b.classList.toggle('on', t.key === name);
+      for (const tb of TABS) {
+        const b = tabBtns[tb.key];
+        if (b && b.classList) b.classList.toggle('on', tb.key === name);
       }
       if (optEl.classList) optEl.classList.toggle('show', name === 'pv');
       st.staticDirty = true;
@@ -2147,6 +2366,7 @@ export function createCharts(root) {
     getSweepMs() { return st.sweepMs || 0; },
     dispose() {
       st.disposed = true;
+      if (offLang) { offLang(); offLang = null; }
       if (sweepTimer && typeof clearTimeout === 'function') clearTimeout(sweepTimer);
       sweepTimer = null;
       if (ro) ro.disconnect();
@@ -2161,6 +2381,30 @@ export function createCharts(root) {
     el: { wrap, canvas, tabs: tabsEl },
   };
 
+  /** Тексты элементов управления по текущему языку. */
+  function applyLang() {
+    for (const tb of TABS) {
+      const b = tabBtns[tb.key];
+      if (!b) continue;
+      b.textContent = t(tb.label);
+      b.title = t(tb.label);
+    }
+    if (optTxt) optTxt.textContent = t(OPT_LABEL);
+  }
+
+  /**
+   * Смена языка на лету: подписи вкладок обновляются сразу, а статичный слой
+   * помечается грязным и пересобирается — без него подписи осей, легенды
+   * и аннотации остались бы на прежнем языке до следующего resize.
+   */
+  offLang = onLangChange(() => {
+    if (st.disposed) return;
+    applyLang();
+    st.staticDirty = true;
+    render();
+  });
+
+  applyLang();
   api.setActive('pv');
   resize();
   return api;

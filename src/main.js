@@ -7,6 +7,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 
 import { L, layoutSpec } from './layout.js';
+import { getLang, setLang, onLangChange, t, applyDom } from './i18n.js';
+import { STAGES_4, STAGES_2, NOTES, CHART_HINTS, STROKE_NAMES_4, STROKE_NAMES_2,
+         TIMELINE_4, TIMELINE_2, UI } from './content.js';
 import { createEngine } from './physics.js';
 import { buildMechanism } from './engine3d.js';
 import { buildFluids } from './fluids3d.js';
@@ -149,15 +152,6 @@ buildAll();
 const charts = createCharts($('chartHost'));
 charts.setEngine(engine);
 
-const CHART_HINTS = {
-  pv: 'Площадь замкнутой петли — работа за цикл. Пунктир — идеальный цикл при той же степени сжатия: разница и есть потери на теплоотдачу, газообмен и реальное сгорание.',
-  torque: 'Момент от одного цилиндра большую часть цикла отрицательный — вал крутит маховик. У многоцилиндрового рабочие ходы перекрываются, и суммарная кривая почти не проваливается.',
-  kinematics: 'Из-за конечной длины шатуна ускорение поршня у ВМТ заметно больше, чем у НМТ. Инерционные силы растут как квадрат оборотов — отсюда предел по оборотам.',
-  valves: 'Видна зона перекрытия клапанов у ВМТ и то, что сгорание начинается ещё до ВМТ — за счёт опережения зажигания.',
-  energy: 'В полезную работу превращается лишь около трети энергии топлива: остальное уносит выхлоп, забирает охлаждение и съедает трение.',
-  sweep: 'Внешняя скоростная характеристика. Двигай длину впускного тракта — резонансный горб наполнения, а с ним и пик момента, поедет по оборотам.',
-  balance: 'Неуравновешенные силы инерции. У одноцилиндрового велик первый порядок, у рядной четвёрки он погашен, но остаётся второй, у V8 с крестообразным валом уравновешены оба.',
-};
 
 /* ═════════ звук (модуль подгружается по требованию) ═════════ */
 let sound = null, soundLoading = false;
@@ -234,17 +228,7 @@ function buildFrame(rpmNow){
 }
 
 /* ═════════ круговой указатель угла ═════════ */
-const STROKES_4 = [
-  { name: 'ВПУСК', color: '#4a9eff' },
-  { name: 'СЖАТИЕ', color: '#b26bff' },
-  { name: 'РАБОЧИЙ ХОД', color: '#ff8a3c' },
-  { name: 'ВЫПУСК', color: '#8b98a8' },
-];
-const STROKES_2 = [
-  { name: 'РАБОЧИЙ ХОД И ПРОДУВКА', color: '#ff8a3c' },
-  { name: 'СЖАТИЕ И НАПОЛНЕНИЕ КАРТЕРА', color: '#b26bff' },
-];
-const strokes = () => state.twoStroke ? STROKES_2 : STROKES_4;
+const strokes = () => state.twoStroke ? STROKE_NAMES_2 : STROKE_NAMES_4;
 
 function arcPath(a0, a1, r = 31){
   const p = a => [38 + r * Math.cos(a * Math.PI / 180), 38 + r * Math.sin(a * Math.PI / 180)];
@@ -301,23 +285,25 @@ function animate(){
   const s = strokes();
   const idx = Math.min(s.length - 1, Math.floor(state.theta / (C / s.length)));
   const st = s[idx];
-  $('strokeBadge').textContent = `${idx + 1} · ${st.name}`;
+  $('strokeBadge').textContent = `${idx + 1} · ${t(st)}`;
   $('strokeBadge').style.color = st.color;
   $('dialAngle').textContent = state.theta.toFixed(0) + '°';
   $('dialNeedle').setAttribute('transform', `rotate(${(state.theta / C * 360).toFixed(1)})`);
   $('angleReadout').textContent = C === 360
-    ? `цикл 360° · один оборот`
-    : `${state.theta.toFixed(0)}° из 720° · оборот ${state.theta < 360 ? 1 : 2}`;
+    ? t(UI.cycle360)
+    : `${state.theta.toFixed(0)}° ${t(UI.cycleOf)} ${state.theta < 360 ? 1 : 2}`;
   if (state.playing){ $('scrub').value = state.theta; syncRange($('scrub')); $('scrubVal').textContent = state.theta.toFixed(0) + '°'; }
   $('tlMarker').style.left = `calc(${(state.theta / C * 100).toFixed(2)}% - 1px)`;
 
   const c0 = frame.cyl[0];
-  $('fP').textContent = c0.p_bar.toFixed(1) + ' бар';
+  $('fP').textContent = c0.p_bar.toFixed(1) + ' ' + t(UI.units.bar);
   $('fT').textContent = Math.round(c0.T_K - 273) + ' °C';
   $('fX').textContent = Math.round(c0.xb * 100) + ' %';
-  $('fM').textContent = frame.totalTorque_Nm.toFixed(0) + ' Н·м';
+  $('fM').textContent = frame.totalTorque_Nm.toFixed(0) + ' ' + t(UI.units.nm);
   $('fRpm').textContent = Math.round(rpmNow);
-  $('fBoost').textContent = frame.boostNow_bar > 0.01 ? '+' + frame.boostNow_bar.toFixed(2) + ' бар' : 'нет';
+  $('fBoost').textContent = frame.boostNow_bar > 0.01
+    ? '+' + frame.boostNow_bar.toFixed(2) + ' ' + t(UI.units.bar)
+    : t(UI.none);
   $('hRpm').textContent = Math.round(rpmNow);
 
   if (idx !== lastStroke){
@@ -342,49 +328,48 @@ const pct = v => Number.isFinite(v) ? (v * 100).toFixed(1) + ' %' : '—';
 
 function updateMetrics(rpmInst){
   const m = engine.metrics, g = engine.geometry;
+  const U = UI.units;
   const neg = m.brakePower_kW < 0;
   $('mPower').textContent = neg
-    ? fmt(m.brakePower_kW, 1, 'кВт') + ' — торможение'
-    : fmt(m.brakePower_kW, 1, 'кВт') +
-      (Number.isFinite(m.brakePower_kW) ? ` (${(m.brakePower_kW * 1.36).toFixed(0)} л.с.)` : '');
+    ? fmt(m.brakePower_kW, 1, t(U.kw)) + ' ' + t(UI.braking)
+    : fmt(m.brakePower_kW, 1, t(U.kw)) +
+      (Number.isFinite(m.brakePower_kW) ? ` (${(m.brakePower_kW * 1.36).toFixed(0)} ${t(UI.hp)})` : '');
   $('mPower').style.color = neg ? 'var(--amber)' : '';
-  $('mPowerInd').textContent = fmt(m.indPower_kW, 1, 'кВт');
-  $('mTorque').textContent = fmt(m.brakeTorque_Nm, 0, 'Н·м');
-  $('mDispl').textContent = fmt(g.Vd_cm3 * cylCount() / 1000, 2, 'л');
+  $('mPowerInd').textContent = fmt(m.indPower_kW, 1, t(U.kw));
+  $('mTorque').textContent = fmt(m.brakeTorque_Nm, 0, t(U.nm));
+  $('mDispl').textContent = fmt(g.Vd_cm3 * cylCount() / 1000, 2, t(U.litre));
   const b = m.boostNow_bar ?? engine.params.boost_bar ?? 0;
   $('mBoost').textContent = b > 0.01
-    ? '+' + b.toFixed(2) + ' бар' + (engine.params.intercooler ? ', интеркулер' : ', без охлаждения')
-    : 'атмосферный';
-  $('mPmax').textContent = fmt(m.pmax_bar, 1, 'бар') +
-    (Number.isFinite(m.pmax_deg) ? ` при ${m.pmax_deg.toFixed(0)}°` : '');
+    ? '+' + b.toFixed(2) + ' ' + t(U.bar) + t(engine.params.intercooler ? UI.withIC : UI.withoutIC)
+    : t(UI.boostNone);
+  $('mPmax').textContent = fmt(m.pmax_bar, 1, t(U.bar)) +
+    (Number.isFinite(m.pmax_deg) ? ` ${t(U.at)} ${m.pmax_deg.toFixed(0)}°` : '');
   $('mTmax').textContent = fmt(m.Tmax_K - 273, 0, '°C');
-  $('mImep').textContent = fmt(m.imep_bar, 2, 'бар');
-  $('mWork').textContent = fmt(m.workPerCycle_J, 0, 'Дж');
+  $('mImep').textContent = fmt(m.imep_bar, 2, t(U.bar));
+  $('mWork').textContent = fmt(m.workPerCycle_J, 0, t(U.joule));
   $('mVolEff').textContent = pct(m.volEff);
   $('mEffInd').textContent = pct(m.effIndicated);
   $('mEffBrake').textContent = pct(m.effBrake);
   $('mEffOtto').textContent = pct(m.effOtto);
-  $('mBsfc').textContent = fmt(m.bsfc_g_kWh, 0, 'г/(кВт·ч)');
-  $('mPistonSpeed').textContent = fmt(m.meanPistonSpeed_ms, 1, 'м/с');
+  $('mBsfc').textContent = fmt(m.bsfc_g_kWh, 0, t(U.gkwh));
+  $('mPistonSpeed').textContent = fmt(m.meanPistonSpeed_ms, 1, t(U.ms));
   $('mFluct').textContent = Number.isFinite(m.speedFluctuation) ? m.speedFluctuation.toFixed(3) : '—';
   $('mBalance').textContent = m.balance
-    ? `${Math.round(m.balance.primary_N)} / ${Math.round(m.balance.secondary_N)} Н`
+    ? `${Math.round(m.balance.primary_N)} / ${Math.round(m.balance.secondary_N)} ${t({ ru: 'Н', en: 'N' })}`
     : '—';
 
   $('hPower').textContent = Number.isFinite(m.brakePower_kW) ? m.brakePower_kW.toFixed(1) : '—';
   $('hTorque').textContent = Number.isFinite(m.brakeTorque_Nm) ? Math.round(m.brakeTorque_Nm) : '—';
 
   const k = m.knock || {};
-  $('mKnock').textContent = k.happens ? `есть, с ${(k.deg ?? 0).toFixed(0)}°` : 'нет';
+  $('mKnock').textContent = k.happens
+    ? `${t(UI.knockYes)} ${(k.deg ?? 0).toFixed(0)}°`
+    : t(UI.knockNo);
   $('mKnock').style.color = k.happens ? 'var(--red)' : 'var(--green)';
 
   const banner = $('knockBanner');
   banner.classList.toggle('show', !!k.happens);
-  if (k.happens){
-    banner.innerHTML = `<b>Детонация.</b> Несгоревшая смесь самовоспламеняется от сжатия
-      (критерий Ливенгуда–Ву ≥ 1). Уменьши степень сжатия, наддув или опережение зажигания,
-      либо возьми топливо с бо́льшим октановым числом.`;
-  }
+  if (k.happens) banner.innerHTML = `<b>${t(UI.knockTitle)}</b> ${t(UI.knockBody)}`;
 }
 
 /* ═════════ пересчёт ═════════ */
@@ -417,10 +402,10 @@ document.querySelectorAll('input[type=range]').forEach(el => {
   el.addEventListener('input', () => syncRange(el));
 });
 
-$('playBtn').textContent = state.playing ? '⏸ ПАУЗА' : '▶ ПУСК';
+$('playBtn').textContent = t(state.playing ? UI.pause : UI.play);
 $('playBtn').onclick = () => {
   state.playing = !state.playing;
-  $('playBtn').textContent = state.playing ? '⏸ ПАУЗА' : '▶ ПУСК';
+  $('playBtn').textContent = t(state.playing ? UI.pause : UI.play);
 };
 const setTheta = v => {
   const C = cycleDeg();
@@ -458,10 +443,20 @@ bind('eps', 'epsVal', v => v.toFixed(1), v => ({ eps: v }));
 bind('advance', 'advVal', v => v, v => ({ sparkAdvance_deg: v }));
 bind('octane', 'octVal', v => v, v => ({ octane: v }));
 bind('intakeLen', 'intakeLenVal', v => v, v => ({ intakeLen_mm: v }));
+/** Подсказка под ползунком наддува. */
+function boostNote(v){
+  return v > 0.01
+    ? t({
+        ru: `Наддув +${v.toFixed(2)} бар: в цилиндр входит больше воздуха, значит и топлива. Следи за детонацией.`,
+        en: `Boost +${v.toFixed(2)} bar: more air in the cylinder means more fuel. Watch out for knock.`,
+      })
+    : t({
+        ru: 'Атмосферный впуск. Наддув поднимает мощность, но приближает детонацию — интеркулер снимает часть риска.',
+        en: 'Naturally aspirated. Boost raises power but brings knock closer — an intercooler takes part of that risk away.',
+      });
+}
 bind('boost', 'boostVal', v => v.toFixed(1), v => {
-  $('boostNote').textContent = v > 0.01
-    ? `Наддув +${v.toFixed(2)} бар: в цилиндр входит больше воздуха, значит и топлива. Следи за детонацией.`
-    : 'Атмосферный впуск. Наддув поднимает мощность, но приближает детонацию — интеркулер снимает часть риска.';
+  $('boostNote').textContent = boostNote(v);
   return { boost_bar: v };
 });
 $('turbo').onchange = e => recompute({ turbo: e.target.checked });
@@ -471,11 +466,11 @@ $('slowmo').oninput = e => { state.slowIdx = +e.target.value; updateSlowHint(); 
 function updateSlowHint(){
   const f = SLOW[state.slowIdx];
   $('slowVal').textContent = '×' + f;
-  const rps = engine.params.rpm / 60;
   const cycleMs = (state.twoStroke ? 60000 : 120000) / engine.params.rpm;
+  const ms = cycleMs.toFixed(0) + ' ' + t(UI.units.ms_);
   $('slowHint').textContent = f === 1
-    ? `реальная скорость: ${rps.toFixed(1)} оборота в секунду, цикл ${cycleMs.toFixed(0)} мс`
-    : `замедлено в ${f} раз · в реальности цикл длится ${cycleMs.toFixed(0)} мс`;
+    ? `${t(UI.realtime)}: ${t(UI.cycleLasts)} ${ms}`
+    : `${t(UI.slowed)} ${f} ${t(UI.times)} · ${t(UI.cycleLasts)} ${ms}`;
 }
 updateSlowHint();
 
@@ -514,50 +509,42 @@ function setTwoStroke(on, silent){
   if (!silent) recompute({ stroke2: on, layout: state.layout, cylinders: cylCount() }, true);
   updateLayoutNote();
 }
+const LAYOUT_NAMES = {
+  single: { ru: 'одноцилиндровый', en: 'single cylinder' },
+  i4: { ru: 'рядная четвёрка', en: 'inline-four' },
+  v8: { ru: 'V8 с развалом 90°', en: 'V8 at 90°' },
+};
 function updateLayoutNote(){
-  const spec = layoutSpec(state.layout);
-  const bits = [state.twoStroke ? 'Двухтактный' : 'Четырёхтактный', spec.name.toLowerCase(),
-    state.fuel === 'diesel' ? 'дизель' : 'бензин',
-    (engine.params.boost_bar > 0.01 || engine.params.turbo) ? 'с наддувом' : 'атмосферный'];
+  const bits = [
+    t(state.twoStroke ? UI.twoStroke : UI.fourStroke),
+    t(LAYOUT_NAMES[state.layout] || LAYOUT_NAMES.single),
+    t(state.fuel === 'diesel' ? UI.diesel : UI.petrol),
+    t((engine.params.boost_bar > 0.01 || engine.params.turbo) ? UI.boosted : UI.naturally),
+  ];
   $('layoutNote').textContent = bits.join(', ') + '.';
 }
 
-/** Перестройка шкалы и карточек тактов под 2- или 4-тактный цикл. */
-const STAGES_4_HTML = Array.from({ length: 4 }, (_, i) => $('st' + i)?.outerHTML).join('');
+/** Карточка такта из описания в content.js. */
+function stageCard(st, i){
+  return `<div class="stage" id="st${i}" style="--sc:${st.color}">
+    <h3 style="color:${st.color}">${t(st.title)}</h3>
+    <p>${t(st.body)}</p>
+    <small>${t(st.note)}</small>
+  </div>`;
+}
+
+/** Перестройка шкалы и карточек тактов под 2- или 4-тактный цикл и текущий язык. */
 function applyCycleUi(){
   const track = $('tlTrack'), names = $('tlNames');
-  if (state.twoStroke){
-    track.innerHTML = `<div style="flex:1;background:var(--power)"></div>
-      <div style="flex:1;background:var(--compress)"></div><div id="tlMarker"></div>`;
-    names.innerHTML = `<span>Рабочий ход · выпуск · продувка</span><span>Сжатие · наполнение картера</span>`;
-    $('pane-stages').querySelectorAll('.stage').forEach(el => el.remove());
-    $('pane-stages').insertAdjacentHTML('afterbegin', `
-      <div class="stage" id="st0" style="--sc:var(--power)">
-        <h3 style="color:var(--power)">1 · РАБОЧИЙ ХОД, ВЫПУСК И ПРОДУВКА — 0…180°</h3>
-        <p>После вспышки у ВМТ газы толкают поршень вниз. Примерно на 104° поршень своей юбкой
-        <b>открывает выпускное окно</b> — давление падает, начинается свободный выпуск. Ещё через
-        18° открываются <b>продувочные окна</b>, и свежая смесь, сжатая в кривошипной камере,
-        врывается в цилиндр, разворачивается по петле и выталкивает остатки выхлопа.</p>
-        <small>Часть свежей смеси уходит прямо в выпуск — короткое замыкание продувки.
-        Отсюда высокая литровая мощность, но плохая экономичность и грязный выхлоп.</small>
-      </div>
-      <div class="stage" id="st1" style="--sc:var(--compress)">
-        <h3 style="color:var(--compress)">2 · СЖАТИЕ И НАПОЛНЕНИЕ КАРТЕРА — 180…360°</h3>
-        <p>Поршень идёт вверх, закрывает продувочные и выпускное окна и сжимает смесь.
-        Одновременно под поршнем <b>растёт разрежение в кривошипной камере</b>, и она
-        наполняется свежей смесью через впускное окно. У ВМТ — искра, и цикл повторяется.</p>
-        <small>Рабочий ход происходит каждый оборот, а не через один: клапанов, распредвалов
-        и цепи здесь нет вообще.</small>
-      </div>`);
-  } else {
-    track.innerHTML = `<div style="flex:1;background:var(--intake)"></div>
-      <div style="flex:1;background:var(--compress)"></div>
-      <div style="flex:1;background:var(--power)"></div>
-      <div style="flex:1;background:var(--exhaust)"></div><div id="tlMarker"></div>`;
-    names.innerHTML = `<span>Впуск</span><span>Сжатие</span><span>Рабочий ход</span><span>Выпуск</span>`;
-    $('pane-stages').querySelectorAll('.stage').forEach(el => el.remove());
-    $('pane-stages').insertAdjacentHTML('afterbegin', STAGES_4_HTML);
-  }
+  const stages = state.twoStroke ? STAGES_2 : STAGES_4;
+  const tl = state.twoStroke ? TIMELINE_2 : TIMELINE_4;
+
+  track.innerHTML = stages.map(s => `<div style="flex:1;background:${s.color}"></div>`).join('')
+    + '<div id="tlMarker"></div>';
+  names.innerHTML = tl.map(n => `<span>${t(n)}</span>`).join('');
+  $('pane-stages').innerHTML = stages.map(stageCard).join('')
+    + `<div class="note">${t(NOTES.colors)}</div><div class="note">${t(NOTES.knock)}</div>`;
+
   lastStroke = -1;
   drawDial();
 }
@@ -640,7 +627,7 @@ document.querySelectorAll('[data-preset]').forEach(b => b.onclick = () => {
 let hintShown = '';
 function syncChartHint(){
   const a = charts.getActive?.() || 'pv';
-  if (a !== hintShown){ hintShown = a; $('chartHint').textContent = CHART_HINTS[a] || ''; }
+  if (a !== hintShown){ hintShown = a; $('chartHint').textContent = t(CHART_HINTS[a]) || ''; }
 }
 document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => {
   document.querySelectorAll('[data-tab]').forEach(x => x.classList.toggle('on', x === b));
@@ -650,9 +637,30 @@ document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => {
 });
 $('panelToggle').onclick = () => {
   const open = $('right').classList.toggle('open');
-  $('panelToggle').textContent = open ? 'Свернуть' : 'Теория и графики';
+  $('panelToggle').textContent = t(open ? UI.panelClose : UI.panelOpen);
   if (open) charts.resize?.();
 };
+
+/* ═════════ переключение языка ═════════ */
+function syncLangButtons(){
+  document.querySelectorAll('[data-lang]').forEach(b =>
+    b.classList.toggle('on', b.dataset.lang === getLang()));
+}
+document.querySelectorAll('[data-lang]').forEach(b => b.onclick = () => setLang(b.dataset.lang));
+onLangChange(() => {
+  applyDom(document);
+  syncLangButtons();
+  applyCycleUi();                       // карточки тактов и шкала
+  $('playBtn').textContent = t(state.playing ? UI.pause : UI.play);
+  $('panelToggle').textContent = t($('right').classList.contains('open') ? UI.panelClose : UI.panelOpen);
+  $('boostNote').textContent = boostNote(engine.params.boost_bar ?? 0);
+  updateSlowHint();
+  updateLayoutNote();
+  updateMetrics(rpmNow);
+  hintShown = '';                       // подсказка под графиком перечитается
+  syncChartHint();
+});
+syncLangButtons();
 
 $('btnCSV').onclick = () => {
   const csv = engine.toCSV?.();
@@ -693,8 +701,10 @@ $('turbo').checked = !!engine.params.turbo;
 $('intercooler').checked = engine.params.intercooler !== false;
 document.querySelectorAll('[data-layout]').forEach(x => x.classList.toggle('on', x.dataset.layout === state.layout));
 document.querySelectorAll('[data-fuel]').forEach(x => x.classList.toggle('on', x.dataset.fuel === state.fuel));
+applyDom(document);
 applyCycleUi();
 updateLayoutNote();
+$('boostNote').textContent = boostNote(engine.params.boost_bar ?? 0);
 setTheta(state.theta);
 updateMetrics(rpmNow);
 syncChartHint();

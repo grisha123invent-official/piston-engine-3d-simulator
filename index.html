@@ -3,13 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>3D-симулятор четырёхтактного двигателя</title>
+<title>3D Engine Simulator · 3D-симулятор двигателя</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    /* графит испытательного стенда */
     --bg:#080a0e;
     --panel-1:#11151c;
     --panel-2:#0c1016;
@@ -19,14 +18,12 @@
     --dim:#7d8b9c;
     --dimmer:#55616f;
 
-    /* приборные акценты */
     --cyan:#3ddbd9;
     --cyan-dim:#1f7a79;
     --amber:#ffb45c;
     --red:#ff5e57;
     --green:#4ade80;
 
-    /* фазы цикла */
     --intake:#4a9eff;
     --compress:#b26bff;
     --power:#ff8a3c;
@@ -44,7 +41,6 @@
     background:rgba(8,10,14,.78);padding:2px 7px;border-radius:3px;border:1px solid #26303d;
     white-space:nowrap;}
 
-  /* ─────────── панели: графитовая плита с уголками ─────────── */
   .panel{position:absolute;z-index:5;
     background:linear-gradient(160deg,var(--panel-1) 0%,var(--panel-2) 100%);
     border:1px solid var(--line);border-radius:4px;
@@ -58,9 +54,8 @@
     scrollbar-width:thin;scrollbar-color:#2a3542 transparent;}
   #right{top:10px;right:10px;width:404px;bottom:82px;display:flex;flex-direction:column;}
 
-  /* ─────────── шапка левой панели: указатель угла ─────────── */
   #head{display:flex;gap:12px;align-items:center;padding:13px 14px 11px;
-    border-bottom:1px solid var(--line-soft);
+    border-bottom:1px solid var(--line-soft);position:relative;
     background:radial-gradient(120% 140% at 0% 0%,rgba(61,219,217,.07),transparent 60%);}
   #dialWrap{position:relative;width:76px;height:76px;flex:none;}
   #dial{width:76px;height:76px;transform:rotate(-90deg);}
@@ -70,14 +65,18 @@
   #dialSub{font-size:8.5px;letter-spacing:.14em;color:var(--dimmer);margin-top:3px;}
   #headInfo{min-width:0;flex:1;}
   #strokeBadge{font-size:13.5px;font-weight:700;letter-spacing:.02em;line-height:1.2;
-    transition:color .3s;}
-  #angleReadout{font-family:var(--mono);font-size:10px;color:var(--dimmer);margin-top:3px;
-    letter-spacing:.01em;}
+    transition:color .3s;padding-right:44px;}
+  #angleReadout{font-family:var(--mono);font-size:10px;color:var(--dimmer);margin-top:3px;}
   #headStats{display:flex;gap:10px;margin-top:8px;font-family:var(--mono);font-size:10px;}
   #headStats div{color:var(--dim);}
   #headStats b{display:block;color:var(--text);font-size:12px;font-weight:600;}
 
-  /* ─────────── секции ─────────── */
+  /* переключатель языка */
+  #lang{position:absolute;top:11px;right:12px;display:flex;gap:2px;z-index:2;}
+  #lang button{font-family:var(--mono);font-size:10px;padding:3px 6px;line-height:1;
+    background:#161c25;border:1px solid var(--line);border-radius:2px;color:var(--dimmer);}
+  #lang button.on{background:rgba(61,219,217,.14);border-color:var(--cyan-dim);color:var(--cyan);}
+
   .sect{border-bottom:1px solid var(--line-soft);}
   .sect > summary{list-style:none;cursor:pointer;padding:9px 14px;display:flex;
     align-items:center;gap:8px;font-size:9.5px;font-weight:600;letter-spacing:.16em;
@@ -90,7 +89,6 @@
   .sect > summary:hover{color:var(--text);}
   .body{padding:2px 14px 13px;}
 
-  /* ─────────── кнопки ─────────── */
   button{font-family:var(--sans);font-size:12px;color:var(--text);cursor:pointer;
     background:#181e27;border:1px solid var(--line);border-radius:3px;padding:6px 10px;
     transition:background .15s,border-color .15s,color .15s;}
@@ -104,13 +102,10 @@
   .row button{flex:1;font-family:var(--mono);font-size:11px;padding:5px 2px;}
   .seg{display:flex;gap:4px;margin:6px 0;}
   .seg button{flex:1;font-size:11.5px;padding:6px 3px;}
-
-  /* пресеты */
   .chips{display:flex;flex-wrap:wrap;gap:4px;}
   .chips button{font-size:11px;padding:5px 9px;border-radius:12px;background:#141a23;}
   .chips button:hover{border-color:var(--cyan-dim);color:var(--cyan);}
 
-  /* ─────────── слайдеры ─────────── */
   .ctl{margin:11px 0 13px;}
   .ctl:first-child{margin-top:7px;}
   .ctl .cap{display:flex;justify-content:space-between;align-items:baseline;
@@ -131,7 +126,6 @@
   .ticks{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;
     color:var(--dimmer);margin-top:1px;}
 
-  /* ─────────── переключатели ─────────── */
   .switches{display:grid;grid-template-columns:1fr 1fr;gap:3px 12px;}
   .sw{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--dim);
     cursor:pointer;padding:3px 0;user-select:none;}
@@ -145,7 +139,6 @@
   .sw input:focus-visible{outline:2px solid var(--cyan);outline-offset:1px;}
   .sw:has(input:checked){color:var(--text);}
 
-  /* ─────────── предупреждение о детонации ─────────── */
   #knockBanner{display:none;margin:10px 14px 0;padding:8px 10px;border-radius:3px;
     font-size:11px;line-height:1.45;color:#ffd0cc;
     background:linear-gradient(180deg,rgba(255,94,87,.16),rgba(255,94,87,.06));
@@ -154,7 +147,6 @@
   #knockBanner b{color:#fff;}
   @keyframes knockIn{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:none;}}
 
-  /* ─────────── правая панель ─────────── */
   #tabs{display:flex;gap:3px;padding:9px 9px 0;}
   #tabs button{flex:1;border-radius:3px 3px 0 0;font-size:11.5px;padding:7px 3px;
     border-bottom-color:transparent;}
@@ -175,8 +167,7 @@
   .note{font-size:11px;line-height:1.6;color:#a8b4c2;border-top:1px solid var(--line-soft);
     margin-top:9px;padding-top:9px;}
   .note b{color:var(--text);}
-  .dot{display:inline-block;width:8px;height:8px;border-radius:1px;margin-right:4px;
-    vertical-align:0;}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:1px;margin-right:4px;}
 
   #chartHost{width:100%;height:min(54vh,460px);min-height:290px;}
   #chartHint{font-size:11px;color:var(--dim);line-height:1.55;margin-top:9px;
@@ -189,7 +180,6 @@
   table.metrics tr.head td{color:var(--cyan);font-weight:600;border-bottom-color:var(--line);
     padding-top:11px;text-transform:uppercase;font-size:9.5px;letter-spacing:.14em;}
 
-  /* ─────────── нижняя приборная линейка ─────────── */
   #timeline{position:absolute;left:10px;right:10px;bottom:10px;padding:9px 14px 8px;}
   #tlTrack{position:relative;height:10px;border-radius:2px;overflow:hidden;display:flex;
     cursor:pointer;box-shadow:inset 0 1px 2px rgba(0,0,0,.6);}
@@ -242,6 +232,9 @@
 <div class="panel" id="left">
 
   <div id="head">
+    <div id="lang">
+      <button data-lang="ru">RU</button><button data-lang="en">EN</button>
+    </div>
     <div id="dialWrap">
       <svg id="dial" viewBox="0 0 76 76">
         <circle cx="38" cy="38" r="31" fill="none" stroke="#1a222d" stroke-width="7"/>
@@ -253,16 +246,16 @@
       </svg>
       <div id="dialText">
         <div id="dialAngle">0°</div>
-        <div id="dialSub">УГОЛ</div>
+        <div id="dialSub" data-ru="УГОЛ" data-en="ANGLE">УГОЛ</div>
       </div>
     </div>
     <div id="headInfo">
       <div id="strokeBadge">—</div>
-      <div id="angleReadout">оборот 1 / 2</div>
+      <div id="angleReadout"></div>
       <div id="headStats">
-        <div>кВт<b id="hPower">—</b></div>
-        <div>Н·м<b id="hTorque">—</b></div>
-        <div>об/мин<b id="hRpm">—</b></div>
+        <div><span data-ru="кВт" data-en="kW"></span><b id="hPower">—</b></div>
+        <div><span data-ru="Н·м" data-en="N·m"></span><b id="hTorque">—</b></div>
+        <div><span data-ru="об/мин" data-en="rpm"></span><b id="hRpm">—</b></div>
       </div>
     </div>
   </div>
@@ -272,68 +265,72 @@
   <div class="body" style="padding-top:11px">
     <button id="playBtn">⏸ ПАУЗА</button>
     <div class="row">
-      <button id="stepB" title="назад 15°">−15°</button>
-      <button id="stepF" title="вперёд 15°">+15°</button>
-      <button id="prevStroke">◂ такт</button>
-      <button id="nextStroke">такт ▸</button>
+      <button id="stepB">−15°</button>
+      <button id="stepF">+15°</button>
+      <button id="prevStroke" data-ru="◂ такт" data-en="◂ stroke">◂ такт</button>
+      <button id="nextStroke" data-ru="такт ▸" data-en="stroke ▸">такт ▸</button>
     </div>
     <div class="ctl" style="margin:9px 0 0">
-      <div class="cap"><span>Перемотка по углу</span><b id="scrubVal">0°</b></div>
+      <div class="cap"><span data-ru="Перемотка по углу" data-en="Crank angle">Перемотка по углу</span><b id="scrubVal">0°</b></div>
       <input type="range" id="scrub" min="0" max="720" value="0" step="1">
     </div>
   </div>
 
   <details class="sect" open>
-    <summary>Быстрые режимы</summary>
+    <summary data-ru="Быстрые режимы" data-en="Quick presets">Быстрые режимы</summary>
     <div class="body">
       <div class="chips" id="presets">
-        <button data-preset="city">Город</button>
-        <button data-preset="wot">Полный газ</button>
-        <button data-preset="turbo">Турбо</button>
-        <button data-preset="knock">Детонация</button>
-        <button data-preset="diesel">Дизель</button>
-        <button data-preset="two">Два такта</button>
-        <button data-preset="v8">V8</button>
-        <button data-preset="idle">Холостой</button>
+        <button data-preset="city" data-ru="Город" data-en="City">Город</button>
+        <button data-preset="wot" data-ru="Полный газ" data-en="Full throttle">Полный газ</button>
+        <button data-preset="turbo" data-ru="Турбо" data-en="Turbo">Турбо</button>
+        <button data-preset="knock" data-ru="Детонация" data-en="Knock">Детонация</button>
+        <button data-preset="diesel" data-ru="Дизель" data-en="Diesel">Дизель</button>
+        <button data-preset="two" data-ru="Два такта" data-en="Two-stroke">Два такта</button>
+        <button data-preset="v8" data-ru="V8" data-en="V8">V8</button>
+        <button data-preset="idle" data-ru="Холостой" data-en="Idle">Холостой</button>
       </div>
-      <div class="note" style="border:0;margin:8px 0 0;padding:0;font-size:10px;color:var(--dimmer)">
-        Один клик — целый сценарий: компоновка, топливо, обороты и настройки сразу.
+      <div class="note" style="border:0;margin:8px 0 0;padding:0;font-size:10px;color:var(--dimmer)"
+        data-ru="Один клик — целый сценарий: компоновка, топливо, обороты и настройки сразу."
+        data-en="One click sets a whole scenario: layout, fuel, engine speed and tuning at once.">
       </div>
     </div>
   </details>
 
   <details class="sect" open>
-    <summary>Компоновка и топливо</summary>
+    <summary data-ru="Компоновка и топливо" data-en="Layout and fuel">Компоновка и топливо</summary>
     <div class="body">
       <div class="seg">
-        <button data-layout="single" class="on">1 цилиндр</button>
-        <button data-layout="i4">Рядная 4</button>
-        <button data-layout="v8">V8</button>
+        <button data-layout="single" class="on" data-ru="1 цилиндр" data-en="Single">1 цилиндр</button>
+        <button data-layout="i4" data-ru="Рядная 4" data-en="Inline-4">Рядная 4</button>
+        <button data-layout="v8" data-ru="V8" data-en="V8">V8</button>
       </div>
       <div class="seg">
-        <button data-fuel="petrol" class="on">Бензин</button>
-        <button data-fuel="diesel">Дизель</button>
-        <button data-cycle="2t">2 такта</button>
+        <button data-fuel="petrol" class="on" data-ru="Бензин" data-en="Petrol">Бензин</button>
+        <button data-fuel="diesel" data-ru="Дизель" data-en="Diesel">Дизель</button>
+        <button data-cycle="2t" data-ru="2 такта" data-en="2-stroke">2 такта</button>
       </div>
       <div class="note" id="layoutNote" style="border:0;margin:6px 0 0;padding:0;font-size:10px;
-        color:var(--dimmer)">Четырёхтактный, атмосферный, искровое зажигание.</div>
+        color:var(--dimmer)"></div>
     </div>
   </details>
 
   <details class="sect" open>
-    <summary>Режим работы</summary>
+    <summary data-ru="Режим работы" data-en="Operating point">Режим работы</summary>
     <div class="body">
       <div class="ctl">
-        <div class="cap"><span>Обороты</span><b><span id="rpmVal">2400</span><i>об/мин</i></b></div>
+        <div class="cap"><span data-ru="Обороты" data-en="Engine speed">Обороты</span>
+          <b><span id="rpmVal">2400</span><i data-ru="об/мин" data-en="rpm">об/мин</i></b></div>
         <input type="range" id="rpm" min="800" max="6000" value="2400" step="50">
         <div class="ticks"><span>800</span><span>3400</span><span>6000</span></div>
       </div>
       <div class="ctl">
-        <div class="cap"><span>Дроссель — нагрузка</span><b><span id="thrVal">100</span><i>%</i></b></div>
+        <div class="cap"><span data-ru="Дроссель — нагрузка" data-en="Throttle — load">Дроссель — нагрузка</span>
+          <b><span id="thrVal">100</span><i>%</i></b></div>
         <input type="range" id="throttle" min="5" max="100" value="100" step="1">
       </div>
       <div class="ctl">
-        <div class="cap"><span>Замедление показа</span><b id="slowVal">×100</b></div>
+        <div class="cap"><span data-ru="Замедление показа" data-en="Slow motion">Замедление показа</span>
+          <b id="slowVal">×100</b></div>
         <input type="range" id="slowmo" min="0" max="5" value="3" step="1">
         <div class="note" id="slowHint"></div>
       </div>
@@ -341,138 +338,94 @@
   </details>
 
   <details class="sect">
-    <summary>Наддув</summary>
+    <summary data-ru="Наддув" data-en="Forced induction">Наддув</summary>
     <div class="body">
       <div class="switches" style="margin-bottom:4px">
-        <label class="sw"><input type="checkbox" id="turbo">Турбина</label>
-        <label class="sw"><input type="checkbox" id="intercooler" checked>Интеркулер</label>
+        <label class="sw"><input type="checkbox" id="turbo"><span data-ru="Турбина" data-en="Turbo">Турбина</span></label>
+        <label class="sw"><input type="checkbox" id="intercooler" checked><span data-ru="Интеркулер" data-en="Intercooler">Интеркулер</span></label>
       </div>
       <div class="ctl">
-        <div class="cap"><span>Давление наддува</span><b><span id="boostVal">0.0</span><i>бар</i></b></div>
+        <div class="cap"><span data-ru="Давление наддува" data-en="Boost pressure">Давление наддува</span>
+          <b><span id="boostVal">0.0</span><i data-ru="бар" data-en="bar">бар</i></b></div>
         <input type="range" id="boost" min="0" max="1.5" value="0" step="0.05">
-        <div class="note" id="boostNote">Атмосферный впуск. Наддув поднимает мощность,
-          но приближает детонацию — интеркулер снимает часть риска.</div>
+        <div class="note" id="boostNote"></div>
       </div>
     </div>
   </details>
 
   <details class="sect">
-    <summary>Настройка</summary>
+    <summary data-ru="Настройка" data-en="Tuning">Настройка</summary>
     <div class="body">
       <div class="ctl">
-        <div class="cap"><span>Степень сжатия ε</span><b id="epsVal">10.0</b></div>
+        <div class="cap"><span data-ru="Степень сжатия ε" data-en="Compression ratio ε">Степень сжатия ε</span>
+          <b id="epsVal">10.0</b></div>
         <input type="range" id="eps" min="8" max="22" value="10" step="0.5">
         <div class="ticks"><span>8</span><span>15</span><span>22</span></div>
       </div>
       <div class="ctl">
-        <div class="cap"><span>Опережение зажигания</span><b><span id="advVal">18</span><i>° до ВМТ</i></b></div>
+        <div class="cap"><span data-ru="Опережение зажигания" data-en="Ignition advance">Опережение зажигания</span>
+          <b><span id="advVal">18</span><i data-ru="° до ВМТ" data-en="° BTDC">° до ВМТ</i></b></div>
         <input type="range" id="advance" min="0" max="45" value="18" step="1">
       </div>
       <div class="ctl">
-        <div class="cap"><span>Октановое число</span><b id="octVal">95</b></div>
+        <div class="cap"><span data-ru="Октановое число" data-en="Octane rating">Октановое число</span>
+          <b id="octVal">95</b></div>
         <input type="range" id="octane" min="80" max="102" value="95" step="1">
       </div>
       <div class="ctl">
-        <div class="cap"><span>Длина впускного тракта</span><b><span id="intakeLenVal">350</span><i>мм</i></b></div>
+        <div class="cap"><span data-ru="Длина впускного тракта" data-en="Intake runner length">Длина впускного тракта</span>
+          <b><span id="intakeLenVal">350</span><i data-ru="мм" data-en="mm">мм</i></b></div>
         <input type="range" id="intakeLen" min="150" max="900" value="350" step="10">
-        <div class="note">Настроенный впуск: короткий тракт двигает пик момента вверх
-          по оборотам, длинный — вниз. Смотри график «Характеристика».</div>
+        <div class="note"
+          data-ru="Настроенный впуск: короткий тракт двигает пик момента вверх по оборотам, длинный — вниз. Смотри график «Характеристика»."
+          data-en="Tuned intake: short runners move the torque peak up the rev range, long runners move it down. See the “Speed curve” chart."></div>
       </div>
     </div>
   </details>
 
   <details class="sect">
-    <summary>Показ и звук</summary>
+    <summary data-ru="Показ и звук" data-en="Display and sound">Показ и звук</summary>
     <div class="body">
       <div class="switches">
-        <label class="sw"><input type="checkbox" id="cutaway" checked>Разрез</label>
-        <label class="sw"><input type="checkbox" id="showLabels" checked>Подписи</label>
-        <label class="sw"><input type="checkbox" id="fGas" checked>Газ</label>
-        <label class="sw"><input type="checkbox" id="fFuel" checked>Топливо</label>
-        <label class="sw"><input type="checkbox" id="fExhaust" checked>Выхлоп</label>
-        <label class="sw"><input type="checkbox" id="fOil" checked>Масло</label>
-        <label class="sw"><input type="checkbox" id="fCoolant" checked>Охлаждение</label>
-        <label class="sw"><input type="checkbox" id="sound">Звук</label>
+        <label class="sw"><input type="checkbox" id="cutaway" checked><span data-ru="Разрез" data-en="Cutaway">Разрез</span></label>
+        <label class="sw"><input type="checkbox" id="showLabels" checked><span data-ru="Подписи" data-en="Labels">Подписи</span></label>
+        <label class="sw"><input type="checkbox" id="fGas" checked><span data-ru="Газ" data-en="Gas">Газ</span></label>
+        <label class="sw"><input type="checkbox" id="fFuel" checked><span data-ru="Топливо" data-en="Fuel">Топливо</span></label>
+        <label class="sw"><input type="checkbox" id="fExhaust" checked><span data-ru="Выхлоп" data-en="Exhaust">Выхлоп</span></label>
+        <label class="sw"><input type="checkbox" id="fOil" checked><span data-ru="Масло" data-en="Oil">Масло</span></label>
+        <label class="sw"><input type="checkbox" id="fCoolant" checked><span data-ru="Охлаждение" data-en="Coolant">Охлаждение</span></label>
+        <label class="sw"><input type="checkbox" id="sound"><span data-ru="Звук" data-en="Sound">Звук</span></label>
       </div>
       <div class="ctl" id="volCtl" style="display:none">
-        <div class="cap"><span>Громкость</span><b><span id="volVal">50</span><i>%</i></b></div>
+        <div class="cap"><span data-ru="Громкость" data-en="Volume">Громкость</span>
+          <b><span id="volVal">50</span><i>%</i></b></div>
         <input type="range" id="volume" min="0" max="100" value="50" step="1">
       </div>
       <div class="seg" style="margin-top:9px">
-        <button data-cam="side">Сбоку</button>
-        <button data-cam="iso" class="on">3/4</button>
-        <button data-cam="front">Спереди</button>
-        <button data-cam="top">Сверху</button>
+        <button data-cam="side" data-ru="Сбоку" data-en="Side">Сбоку</button>
+        <button data-cam="iso" class="on" data-ru="3/4" data-en="3/4">3/4</button>
+        <button data-cam="front" data-ru="Спереди" data-en="Front">Спереди</button>
+        <button data-cam="top" data-ru="Сверху" data-en="Top">Сверху</button>
       </div>
-      <div class="note" style="border:0;padding:0;margin-top:8px;font-size:10px;color:var(--dimmer)">
-        ЛКМ — поворот · колесо — зум · ПКМ — сдвиг · пробел — пауза · ←/→ — шаг
-      </div>
+      <div class="note" style="border:0;padding:0;margin-top:8px;font-size:10px;color:var(--dimmer)"
+        data-ru="ЛКМ — поворот · колесо — зум · ПКМ — сдвиг · пробел — пауза · ←/→ — шаг"
+        data-en="LMB — orbit · wheel — zoom · RMB — pan · space — pause · ←/→ — step"></div>
     </div>
   </details>
 </div>
 
-<button id="panelToggle">Теория и графики</button>
+<button id="panelToggle" data-ru="Теория и графики" data-en="Theory and charts">Теория и графики</button>
 
 <!-- ══════════════ ПРАВАЯ ПАНЕЛЬ ══════════════ -->
 <div class="panel" id="right">
   <div id="tabs">
-    <button data-tab="stages" class="on">Такты</button>
-    <button data-tab="charts">Графики</button>
-    <button data-tab="metrics">Показатели</button>
+    <button data-tab="stages" class="on" data-ru="Такты" data-en="Strokes">Такты</button>
+    <button data-tab="charts" data-ru="Графики" data-en="Charts">Графики</button>
+    <button data-tab="metrics" data-ru="Показатели" data-en="Numbers">Показатели</button>
   </div>
   <div id="tabBody">
 
-    <div class="tabpane on" id="pane-stages">
-      <div class="stage" id="st0" style="--sc:var(--intake)">
-        <h3 style="color:var(--intake)">1 · ВПУСК — 0…180°</h3>
-        <p>Поршень идёт от ВМТ вниз, <b>впускной клапан открыт</b> (открывается за ~20° до ВМТ).
-        Разрежение засасывает свежий заряд, форсунка впрыскивает топливо — смесь
-        стехиометрическая, ~14,7 кг воздуха на 1 кг бензина. Сколько заряда реально влезло,
-        показывает <b>коэффициент наполнения</b>: он зависит от оборотов, дросселя и настройки
-        впускного тракта.</p>
-        <small>Клапан закрывается на ~50° позже НМТ — поток по инерции продолжает наполнять цилиндр.</small>
-      </div>
-      <div class="stage" id="st1" style="--sc:var(--compress)">
-        <h3 style="color:var(--compress)">2 · СЖАТИЕ — 180…360°</h3>
-        <p>Оба клапана закрыты, смесь сжимается в ε раз. Процесс близок к адиабатному:
-        <b>p·V<sup>γ</sup> ≈ const</b>, газ разогревается сам. За несколько десятков градусов
-        до ВМТ проскакивает искра — <b>опережение</b> нужно потому, что сгорание занимает время,
-        а максимум давления должен прийтись на 10–15° после ВМТ.</p>
-        <small>Момент на этом такте отрицательный: двигатель живёт за счёт маховика.</small>
-      </div>
-      <div class="stage" id="st2" style="--sc:var(--power)">
-        <h3 style="color:var(--power)">3 · РАБОЧИЙ ХОД — 360…540°</h3>
-        <p>Доля сгоревшего топлива описывается <b>функцией Вибе</b>. Давление и температура
-        достигают максимума, газы толкают поршень вниз — единственный такт, где совершается
-        полезная работа. Момент считается с учётом конечной длины шатуна:
-        <b>M = F·r·(sin θ + λ·sin 2θ / 2)</b>.</p>
-        <small>Площадь петли на диаграмме p–V — это и есть работа за цикл.</small>
-      </div>
-      <div class="stage" id="st3" style="--sc:var(--exhaust)">
-        <h3 style="color:#9aa8b8">4 · ВЫПУСК — 540…720°</h3>
-        <p>Выпускной клапан открывается за ~50° до НМТ: остаточное давление само выбрасывает
-        первую порцию газов. Поршень выталкивает остальное. У ВМТ — <b>перекрытие клапанов</b>:
-        оба приоткрыты, уходящий поток помогает затянуть свежую смесь.</p>
-        <small>За цикл коленвал делает 2 оборота, распредвалы — 1: смотри, как цепь крутит их вдвое медленнее.</small>
-      </div>
-
-      <div class="note">
-        <b>Цвета газа:</b>
-        <span class="dot" style="background:#4a9eff"></span>смесь
-        <span class="dot" style="background:#b26bff"></span>сжатие
-        <span class="dot" style="background:#ff8a3c"></span>горение
-        <span class="dot" style="background:#8b98a8"></span>выхлоп<br>
-        <b>Жидкости:</b> жёлтые капли — впрыск, янтарные частицы — масло (насос → шейки →
-        стенки цилиндра → поддон), сине-красный поток — антифриз в рубашке.
-        В полезную работу уходит лишь около трети энергии топлива.
-      </div>
-      <div class="note">
-        <b>Детонация.</b> Подними степень сжатия, наддув или опережение — и несгоревшая смесь
-        самовоспламенится от сжатия раньше фронта пламени (критерий Ливенгуда–Ву). Появится
-        вспышка, ударная волна и характерный металлический стук в звуке. Лечится высоким
-        октановым числом, поздним зажиганием, интеркулером или меньшей нагрузкой.
-      </div>
-    </div>
+    <div class="tabpane on" id="pane-stages"></div>
 
     <div class="tabpane" id="pane-charts">
       <div id="chartHost"></div>
@@ -481,41 +434,39 @@
 
     <div class="tabpane" id="pane-metrics">
       <table class="metrics">
-        <tr class="head"><td colspan="2">Мощность и момент</td></tr>
-        <tr><td>Эффективная мощность</td><td id="mPower">—</td></tr>
-        <tr><td>Индикаторная мощность</td><td id="mPowerInd">—</td></tr>
-        <tr><td>Крутящий момент</td><td id="mTorque">—</td></tr>
-        <tr><td>Рабочий объём</td><td id="mDispl">—</td></tr>
-        <tr><td>Наддув</td><td id="mBoost">—</td></tr>
+        <tr class="head"><td colspan="2" data-ru="Мощность и момент" data-en="Power and torque"></td></tr>
+        <tr><td data-ru="Эффективная мощность" data-en="Brake power"></td><td id="mPower">—</td></tr>
+        <tr><td data-ru="Индикаторная мощность" data-en="Indicated power"></td><td id="mPowerInd">—</td></tr>
+        <tr><td data-ru="Крутящий момент" data-en="Brake torque"></td><td id="mTorque">—</td></tr>
+        <tr><td data-ru="Рабочий объём" data-en="Displacement"></td><td id="mDispl">—</td></tr>
+        <tr><td data-ru="Наддув" data-en="Boost"></td><td id="mBoost">—</td></tr>
 
-        <tr class="head"><td colspan="2">В цилиндре</td></tr>
-        <tr><td>Максимальное давление</td><td id="mPmax">—</td></tr>
-        <tr><td>Максимальная температура</td><td id="mTmax">—</td></tr>
-        <tr><td>Среднее индикаторное p<sub>i</sub></td><td id="mImep">—</td></tr>
-        <tr><td>Работа за цикл</td><td id="mWork">—</td></tr>
-        <tr><td>Коэффициент наполнения</td><td id="mVolEff">—</td></tr>
+        <tr class="head"><td colspan="2" data-ru="В цилиндре" data-en="In-cylinder"></td></tr>
+        <tr><td data-ru="Максимальное давление" data-en="Peak pressure"></td><td id="mPmax">—</td></tr>
+        <tr><td data-ru="Максимальная температура" data-en="Peak temperature"></td><td id="mTmax">—</td></tr>
+        <tr><td data-ru="Среднее индикаторное pᵢ" data-en="IMEP"></td><td id="mImep">—</td></tr>
+        <tr><td data-ru="Работа за цикл" data-en="Work per cycle"></td><td id="mWork">—</td></tr>
+        <tr><td data-ru="Коэффициент наполнения" data-en="Volumetric efficiency"></td><td id="mVolEff">—</td></tr>
 
-        <tr class="head"><td colspan="2">Эффективность</td></tr>
-        <tr><td>КПД индикаторный</td><td id="mEffInd">—</td></tr>
-        <tr><td>КПД эффективный</td><td id="mEffBrake">—</td></tr>
-        <tr><td>КПД идеального цикла</td><td id="mEffOtto">—</td></tr>
-        <tr><td>Удельный расход топлива</td><td id="mBsfc">—</td></tr>
+        <tr class="head"><td colspan="2" data-ru="Эффективность" data-en="Efficiency"></td></tr>
+        <tr><td data-ru="КПД индикаторный" data-en="Indicated efficiency"></td><td id="mEffInd">—</td></tr>
+        <tr><td data-ru="КПД эффективный" data-en="Brake efficiency"></td><td id="mEffBrake">—</td></tr>
+        <tr><td data-ru="КПД идеального цикла" data-en="Ideal cycle efficiency"></td><td id="mEffOtto">—</td></tr>
+        <tr><td data-ru="Удельный расход топлива" data-en="BSFC"></td><td id="mBsfc">—</td></tr>
 
-        <tr class="head"><td colspan="2">Механика</td></tr>
-        <tr><td>Средняя скорость поршня</td><td id="mPistonSpeed">—</td></tr>
-        <tr><td>Неравномерность хода δ</td><td id="mFluct">—</td></tr>
-        <tr><td>Силы инерции: 1-й / 2-й порядок</td><td id="mBalance">—</td></tr>
-        <tr><td>Детонация</td><td id="mKnock">—</td></tr>
+        <tr class="head"><td colspan="2" data-ru="Механика" data-en="Mechanics"></td></tr>
+        <tr><td data-ru="Средняя скорость поршня" data-en="Mean piston speed"></td><td id="mPistonSpeed">—</td></tr>
+        <tr><td data-ru="Неравномерность хода δ" data-en="Speed fluctuation δ"></td><td id="mFluct">—</td></tr>
+        <tr><td data-ru="Силы инерции: 1-й / 2-й порядок" data-en="Inertia forces: 1st / 2nd order"></td><td id="mBalance">—</td></tr>
+        <tr><td data-ru="Детонация" data-en="Knock"></td><td id="mKnock">—</td></tr>
       </table>
       <div class="row" style="margin-top:11px">
-        <button id="btnCSV" style="flex:1">⤓ Скачать данные цикла (CSV)</button>
+        <button id="btnCSV" style="flex:1" data-ru="⤓ Скачать данные цикла (CSV)"
+          data-en="⤓ Download cycle data (CSV)">⤓ Скачать данные цикла (CSV)</button>
       </div>
-      <div class="note">
-        Модель однозонная: газ считается однородным, теплоотдача — по упрощённой зависимости,
-        трение — по эмпирической формуле FMEP. Цифры соответствуют порядку величин реального
-        двигателя и хорошо показывают тенденции, но это учебная модель, а не расчёт
-        для проектирования.
-      </div>
+      <div class="note"
+        data-ru="Модель однозонная: газ считается однородным, теплоотдача — по упрощённой зависимости, трение — по эмпирической формуле FMEP. Цифры соответствуют порядку величин реального двигателя и хорошо показывают тенденции, но это учебная модель, а не расчёт для проектирования."
+        data-en="Single-zone model: the gas is treated as uniform, heat transfer uses a simplified correlation and friction an empirical FMEP formula. The numbers are of the right order for a real engine and show the right trends, but this is a teaching model, not a design tool."></div>
     </div>
 
   </div>
@@ -530,15 +481,15 @@
     <div style="flex:1;background:var(--exhaust)"></div>
     <div id="tlMarker"></div>
   </div>
-  <div id="tlNames"><span>Впуск</span><span>Сжатие</span><span>Рабочий ход</span><span>Выпуск</span></div>
+  <div id="tlNames"></div>
   <div id="tlFacts">
-    <div>давление<b id="fP">—</b></div>
-    <div>температура<b id="fT">—</b></div>
-    <div>сгорело<b id="fX">—</b></div>
-    <div>момент<b id="fM">—</b></div>
-    <div>обороты<b id="fRpm">—</b></div>
+    <div><span data-ru="давление" data-en="pressure"></span><b id="fP">—</b></div>
+    <div><span data-ru="температура" data-en="temperature"></span><b id="fT">—</b></div>
+    <div><span data-ru="сгорело" data-en="burned"></span><b id="fX">—</b></div>
+    <div><span data-ru="момент" data-en="torque"></span><b id="fM">—</b></div>
+    <div><span data-ru="обороты" data-en="speed"></span><b id="fRpm">—</b></div>
     <div class="grow"></div>
-    <div>наддув<b id="fBoost">—</b></div>
+    <div><span data-ru="наддув" data-en="boost"></span><b id="fBoost">—</b></div>
   </div>
 </div>
 

@@ -21,11 +21,24 @@ const $ = id => document.getElementById(id);
 function fail(msg){
   const box = $('err');
   box.style.display = 'block';
-  box.textContent = 'Ошибка: ' + msg;
+  box.textContent = t({ ru: 'Ошибка: ', en: 'Error: ' }) + msg;
   console.error(msg);
 }
-addEventListener('error', e => fail(e.message));
-addEventListener('unhandledrejection', e => fail(e.reason?.message || e.reason));
+/**
+ * Показываем баннер только для ошибок, с которыми пользователь может что-то сделать.
+ * Браузер отдаёт «Script error.» без файла и стека для чужого кода с другого домена
+ * (three.js с CDN) — такой баннер ничего не объясняет, поэтому только пишем в консоль.
+ */
+addEventListener('error', e => {
+  const opaque = !e.filename && (!e.message || /^script error/i.test(e.message));
+  if (opaque){ console.warn('внешняя ошибка без подробностей:', e.message); return; }
+  fail(e.message);
+});
+addEventListener('unhandledrejection', e => {
+  const msg = e.reason?.message || String(e.reason ?? '');
+  if (/^script error/i.test(msg) || !msg){ console.warn('внешний сбой:', e.reason); return; }
+  fail(msg);
+});
 
 /* ═════════ параметры из ссылки ═════════ */
 const qs = new URLSearchParams(location.search);
@@ -114,15 +127,30 @@ function camPresets(){
     top:   [1, 68 * k, 12 * k],
   };
 }
+let camName = qs.get('cam') || 'iso';
+/** На узком или вертикальном экране двигатель не влезает — отодвигаем камеру. */
+function fitFactor(){
+  const aspect = innerWidth / innerHeight;
+  if (aspect >= 1.4) return 1;
+  return Math.min(1.6, 1 + (1.4 - aspect) * 0.62);
+}
 function setCam(name){
-  const p = camPresets()[name] || camPresets().iso;
-  camera.position.set(...p);
-  controls.target.set(0, state.layout === 'boxer4' ? 3 : 10, 0);
+  camName = name || camName;
+  const p = camPresets()[camName] || camPresets().iso;
+  const k = fitFactor();
+  camera.position.set(p[0] * k, p[1] * k, p[2] * k);
+  /* на вертикальном экране снизу панели — поднимаем точку взгляда,
+     чтобы двигатель встал в верхнюю половину кадра */
+  const baseY = state.layout === 'boxer4' ? 3 : 10;
+  controls.target.set(0, baseY + (k > 1.15 ? 7 : 0), 0);
 }
 setCam(qs.get('cam') || 'iso');
 
 /* ═════════ 3D-модули ═════════ */
 let mech = null, fluids = null;
+
+/* на телефоне подписи деталей загораживают модель — по умолчанию выключаем */
+if (innerWidth < 760 && !qs.has('labels')) $('showLabels').checked = false;
 
 function buildAll(){
   if (mech){ scene.remove(mech.group); mech.dispose?.(); }
@@ -328,7 +356,7 @@ function animate(){
   if (idx !== lastStroke){
     lastStroke = idx;
     for (let i = 0; i < 4; i++) $('st' + i)?.classList.toggle('active', i === idx);
-    $('st' + idx)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    scrollStageIntoView(idx);
   }
 
   const now = performance.now();
@@ -338,6 +366,20 @@ function animate(){
   controls.update();
   renderer.render(scene, camera);
   labelRenderer.render(scene, camera);
+}
+
+/**
+ * Подкручивает карточку такта внутри своей панели.
+ * Штатный scrollIntoView прокрутил бы весь документ, когда шторка спрятана за экраном,
+ * поэтому двигаем только содержимое панели.
+ */
+function scrollStageIntoView(idx){
+  const pane = $('tabBody'), card = $('st' + idx);
+  if (!pane || !card) return;
+  if (innerWidth <= 1200 && !$('right').classList.contains('open')) return;
+  const dy = card.getBoundingClientRect().top - pane.getBoundingClientRect().top;
+  if (Math.abs(dy) < 4) return;
+  pane.scrollTo({ top: pane.scrollTop + dy - 8, behavior: 'smooth' });
 }
 
 /* ═════════ показатели ═════════ */
@@ -429,11 +471,15 @@ document.querySelectorAll('input[type=range]').forEach(el => {
   el.addEventListener('input', () => syncRange(el));
 });
 
-$('playBtn').textContent = t(state.playing ? UI.pause : UI.play);
-$('playBtn').onclick = () => {
-  state.playing = !state.playing;
-  $('playBtn').textContent = t(state.playing ? UI.pause : UI.play);
-};
+const ICON_PAUSE = '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>';
+const ICON_PLAY = '<path d="M8 5.5v13a1 1 0 0 0 1.54.84l10-6.5a1 1 0 0 0 0-1.68l-10-6.5A1 1 0 0 0 8 5.5z"/>';
+/** Кнопка пуска: подпись и иконка по текущему состоянию. */
+function syncPlayBtn(){
+  $('playLabel').textContent = t(state.playing ? UI.pause : UI.play);
+  $('playIcon').innerHTML = state.playing ? ICON_PAUSE : ICON_PLAY;
+}
+syncPlayBtn();
+$('playBtn').onclick = () => { state.playing = !state.playing; syncPlayBtn(); };
 const setTheta = v => {
   const C = cycleDeg();
   state.theta = (v + C) % C;
@@ -683,11 +729,28 @@ document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => {
   $('pane-' + b.dataset.tab).classList.add('on');
   if (b.dataset.tab === 'charts') charts.resize?.();
 });
-$('panelToggle').onclick = () => {
-  const open = $('right').classList.toggle('open');
-  $('panelToggle').textContent = t(open ? UI.panelClose : UI.panelOpen);
-  if (open) charts.resize?.();
-};
+/* ═════════ шторки на узких экранах ═════════ */
+function openSheet(which){
+  const left = $('left'), right = $('right');
+  const target = which === 'left' ? left : right;
+  const other = which === 'left' ? right : left;
+  other.classList.remove('open');
+  const open = target.classList.toggle('open');
+  document.body.classList.toggle('sheet-open', left.classList.contains('open') || right.classList.contains('open'));
+  $('panelToggleLabel').textContent = t(right.classList.contains('open') ? UI.panelClose : UI.panelOpen);
+  if (open && which === 'right') charts.resize?.();
+  return open;
+}
+$('panelToggle').onclick = () => openSheet('right');
+$('menuToggle').onclick = () => openSheet('left');
+/* тап по сцене закрывает открытую шторку */
+$('scene').addEventListener('pointerdown', () => {
+  if (innerWidth > 1200) return;
+  $('left').classList.remove('open');
+  $('right').classList.remove('open');
+  document.body.classList.remove('sheet-open');
+  $('panelToggleLabel').textContent = t(UI.panelOpen);
+});
 
 /* ═════════ переключение языка ═════════ */
 function syncLangButtons(){
@@ -699,8 +762,8 @@ onLangChange(() => {
   applyDom(document);
   syncLangButtons();
   applyCycleUi();                       // карточки тактов и шкала
-  $('playBtn').textContent = t(state.playing ? UI.pause : UI.play);
-  $('panelToggle').textContent = t($('right').classList.contains('open') ? UI.panelClose : UI.panelOpen);
+  syncPlayBtn();
+  $('panelToggleLabel').textContent = t($('right').classList.contains('open') ? UI.panelClose : UI.panelOpen);
   $('boostNote').textContent = boostNote(engine.params.boost_bar ?? 0);
   updateSlowHint();
   updateLayoutNote();
@@ -726,16 +789,21 @@ addEventListener('keydown', ev => {
   if (ev.code === 'ArrowRight') setTheta(state.theta + (ev.shiftKey ? 45 : 5));
   if (ev.code === 'ArrowLeft')  setTheta(state.theta - (ev.shiftKey ? 45 : 5));
 });
+let lastFit = fitFactor();
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
   labelRenderer.setSize(innerWidth, innerHeight);
   charts.resize?.();
+  /* заметно изменились пропорции экрана — переставляем камеру под них */
+  const f = fitFactor();
+  if (Math.abs(f - lastFit) > 0.12){ lastFit = f; setCam(); }
 });
 
 if (qs.get('ui') === '0')
-  ['left', 'right', 'timeline', 'panelToggle'].forEach(id => $(id).style.display = 'none');
+  ['left', 'right', 'timeline', 'panelToggle', 'menuToggle']
+    .forEach(id => $(id).style.display = 'none');
 
 /* ═════════ старт ═════════ */
 setSlider('rpm', engine.params.rpm, 'rpmVal');

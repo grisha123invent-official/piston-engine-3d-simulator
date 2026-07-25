@@ -210,8 +210,8 @@ export const TIMELINE_2 = [
 
 /** Строки интерфейса, которые собираются в JS. */
 export const UI = {
-  play: { ru: '▶ ПУСК', en: '▶ RUN' },
-  pause: { ru: '⏸ ПАУЗА', en: '⏸ PAUSE' },
+  play: { ru: 'Пуск', en: 'Run' },
+  pause: { ru: 'Пауза', en: 'Pause' },
   cycleOf: { ru: 'из 720° · оборот', en: 'of 720° · revolution' },
   cycle360: { ru: 'цикл 360° · один оборот', en: '360° cycle · one revolution' },
   realtime: { ru: 'реальная скорость', en: 'real time' },
@@ -240,8 +240,8 @@ export const UI = {
   withIC: { ru: ', интеркулер', en: ', intercooler' },
   withoutIC: { ru: ', без охлаждения', en: ', no charge cooling' },
   none: { ru: 'нет', en: 'none' },
-  panelOpen: { ru: 'Теория и графики', en: 'Theory and charts' },
-  panelClose: { ru: 'Свернуть', en: 'Close' },
+  panelOpen: { ru: 'Теория', en: 'Theory' },
+  panelClose: { ru: 'Закрыть', en: 'Close' },
   hp: { ru: 'л.с.', en: 'hp' },
   units: {
     kw: { ru: 'кВт', en: 'kW' },

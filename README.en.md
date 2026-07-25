@@ -13,7 +13,7 @@ turbo — and the sound is synthesised from the very combustion events you see o
 [![No build](https://img.shields.io/badge/build-not_needed-2ea043?style=for-the-badge)](#-running-locally)
 [![MIT License](https://img.shields.io/badge/license-MIT-8957e5?style=for-the-badge)](LICENSE)
 
-<img src="docs/hero.png" alt="V8 on the power stroke" width="100%">
+<img src="docs/en/hero.png" alt="V8 on the power stroke" width="100%">
 
 <sub>A 90° V8: eight cylinders, a firing event every 90°, total torque with almost no dips</sub>
 
@@ -54,31 +54,43 @@ a 4.0 L V8.
 | ⚡ **Quick presets** | Eight scenarios in one click: City, Full throttle, Turbo, Knock, Diesel, Two-stroke, V8, Idle |
 
 <div align="center">
-<img src="docs/panel.png" alt="Control console" width="290" align="right">
+<img src="docs/en/panel.png" alt="Control console" width="290" align="right">
 </div>
 
-## 🎛 The console
+## 🎛 The interface
 
-The interface is laid out like a test-bench console: a circular crank-angle dial with a sector
-for each stroke, live power and torque readouts in the header, collapsible sections and an
-instrument strip along the bottom.
+The panels are built as frosted glass: heavy background blur, a hairline light border and
+a soft shadow — the engine shows through them and stays the centre of attention.
+Typography and controls are system-native: segmented pickers, toggles and sliders behave
+the way they do in macOS and iOS.
 
-The quick presets set up an entire scenario — layout, fuel, engine speed and settings all at
-once — so you never have to assemble an interesting operating point by hand.
+The header carries a circular crank-angle dial with a sector per stroke and live power,
+torque and speed readouts. Quick presets set up an entire scenario in one click; everything
+else lives in collapsible sections.
 
 Controls: left mouse button orbits the camera, wheel zooms, right button pans, space pauses,
 arrow keys step through the cycle (hold Shift for 45° steps).
 
 <br clear="right">
 
+### 📱 On a phone
+
+<img src="docs/en/mobile.png" alt="Mobile view" width="31%">
+<img src="docs/en/mobile-menu.png" alt="Control sheet" width="31%">
+
+The whole screen belongs to the 3D model: panels are hidden, part labels are off and the
+camera pulls back to fit a portrait screen. Controls and theory slide up as sheets —
+the burger on the left, "Theory" on the right. Tapping the scene dismisses the sheet,
+and the cycle strip steps aside for it.
+
 ## 🔄 The four strokes
 
 | | |
 |---|---|
-| <img src="docs/intake.png" alt="Intake"> | **1 · Intake (0…180°).** The piston travels down with the intake valve already open 20° before TDC. Pressure falls to 0.9 bar and the injector delivers fuel. How much charge actually made it in is given by the volumetric efficiency, which depends on engine speed, throttle and intake tract tuning. |
-| <img src="docs/compression.png" alt="Compression"> | **2 · Compression (180…360°).** Valves closed, the mixture is squeezed by a factor of ε and heats itself: by 340° it is already at 14.5 bar and 450 °C. The spark jumps 18° before TDC — combustion takes time, and peak pressure should land 10–15° after TDC. |
-| <img src="docs/power.png" alt="Power stroke"> | **3 · Power (360…540°).** The burned mass fraction follows a Wiebe function; pressure reaches 51 bar and temperature 2444 °C. The only stroke that does useful work. |
-| <img src="docs/exhaust.png" alt="Exhaust"> | **4 · Exhaust (540…720°).** The exhaust valve opens 50° before BDC — the residual 5 bar blow the first slug of gas out on their own. Around TDC the valves overlap. |
+| <img src="docs/en/intake.png" alt="Intake"> | **1 · Intake (0…180°).** The piston travels down with the intake valve already open 20° before TDC. Pressure falls to 0.9 bar and the injector delivers fuel. How much charge actually made it in is given by the volumetric efficiency, which depends on engine speed, throttle and intake tract tuning. |
+| <img src="docs/en/compression.png" alt="Compression"> | **2 · Compression (180…360°).** Valves closed, the mixture is squeezed by a factor of ε and heats itself: by 340° it is already at 14.5 bar and 450 °C. The spark jumps 18° before TDC — combustion takes time, and peak pressure should land 10–15° after TDC. |
+| <img src="docs/en/power.png" alt="Power stroke"> | **3 · Power (360…540°).** The burned mass fraction follows a Wiebe function; pressure reaches 51 bar and temperature 2444 °C. The only stroke that does useful work. |
+| <img src="docs/en/exhaust.png" alt="Exhaust"> | **4 · Exhaust (540…720°).** The exhaust valve opens 50° before BDC — the residual 5 bar blow the first slug of gas out on their own. Around TDC the valves overlap. |
 
 Crankshaft torque is computed exactly, accounting for the finite length of the connecting rod:
 
@@ -88,7 +100,7 @@ M = F·r·( sin θ + λ·sin 2θ / (2·√(1 − λ²·sin²θ)) ),   λ = r/L �
 
 ## 🌀 Boost
 
-<img src="docs/turbo.png" alt="Turbocharging" width="100%">
+<img src="docs/en/turbo.png" alt="Turbocharging" width="100%">
 
 Exhaust gas spins the turbine, the compressor pushes air, the intercooler cools it down —
 all of it visible in 3D and all of it feeding into the calculation:
@@ -123,7 +135,7 @@ variable-length intake manifolds exist to win.
 
 ## 🔩 Layouts and balance
 
-<img src="docs/v8.png" alt="V8" width="100%">
+<img src="docs/en/v8.png" alt="V8" width="100%">
 
 | Layout | 1st order | 2nd order | What it means |
 |---|---|---|---|
@@ -136,7 +148,7 @@ for the second order of the four — the calculation agrees.
 
 ## ⚡ The two-stroke cycle
 
-<img src="docs/twostroke.png" alt="Two-stroke engine" width="100%">
+<img src="docs/en/twostroke.png" alt="Two-stroke engine" width="100%">
 
 No valves, no camshafts, no timing chain: the piston skirt uncovers the exhaust port at 104°
 and the transfer ports at 122°, while fresh mixture arrives from the crankcase and turns over
@@ -152,7 +164,7 @@ Hence the honest trade-off (same displacement, same engine speed):
 
 ## 💥 Knock
 
-<img src="docs/knock.png" alt="Knock" width="100%">
+<img src="docs/en/knock.png" alt="Knock" width="100%">
 
 ```
 τ = 17.68 · (ON/100)^3.402 · p^(−1.7) · exp(3800/T),   knock when ∫dt/τ ≥ 1
@@ -178,8 +190,8 @@ intercooler, or less load. And you can hear it — as that characteristic metall
 
 <table>
 <tr>
-<td width="50%"><img src="docs/chart-pv.png" alt="p–V diagram"></td>
-<td width="50%"><img src="docs/chart-sweep.png" alt="Full-load speed curve"></td>
+<td width="50%"><img src="docs/en/chart-pv.png" alt="p–V diagram"></td>
+<td width="50%"><img src="docs/en/chart-sweep.png" alt="Full-load speed curve"></td>
 </tr>
 <tr>
 <td><b>Indicator p–V diagram.</b> The area of the loop is the work per cycle; the dashed line
@@ -190,8 +202,8 @@ efficiency and boost. This is where the resonance hump shows up, travelling with
 the intake tract.</td>
 </tr>
 <tr>
-<td><img src="docs/chart-torque.png" alt="Torque"></td>
-<td><img src="docs/chart-balance.png" alt="Balance"></td>
+<td><img src="docs/en/chart-torque.png" alt="Torque"></td>
+<td><img src="docs/en/chart-balance.png" alt="Balance"></td>
 </tr>
 <tr>
 <td><b>Crankshaft torque.</b> On a single cylinder it is negative for most of the cycle — the
@@ -201,8 +213,8 @@ dips disappear.</td>
 second-order amplitudes for the current layout.</td>
 </tr>
 <tr>
-<td><img src="docs/chart-kinematics.png" alt="Kinematics"></td>
-<td><img src="docs/chart-valves.png" alt="Valve timing"></td>
+<td><img src="docs/en/chart-kinematics.png" alt="Kinematics"></td>
+<td><img src="docs/en/chart-valves.png" alt="Valve timing"></td>
 </tr>
 <tr>
 <td><b>Piston kinematics.</b> Acceleration at TDC is <b>360 g</b> against <b>194 g</b> at
@@ -213,13 +225,13 @@ and the Wiebe heat-release curve.</td>
 </table>
 
 <div align="center">
-<img src="docs/chart-energy.png" alt="Energy balance" width="46%">
-<img src="docs/metrics.png" alt="Metrics" width="46%">
+<img src="docs/en/chart-energy.png" alt="Energy balance" width="46%">
+<img src="docs/en/metrics.png" alt="Metrics" width="46%">
 </div>
 
 ## ⚗️ Atkinson cycle and direct injection
 
-<img src="docs/atkinson.png" alt="Atkinson cycle" width="100%">
+<img src="docs/en/atkinson.png" alt="Atkinson cycle" width="100%">
 
 The **Atkinson cycle** closes the intake valve later, so part of the charge is pushed back into
 the intake manifold. The effective compression ratio drops while the expansion ratio stays
@@ -243,7 +255,7 @@ compression ratio free of knock climbs from **12.5 to 13.7**.
 
 ## 🔩 The boxer four and balance shafts
 
-<img src="docs/boxer.png" alt="Flat-four" width="100%">
+<img src="docs/en/boxer.png" alt="Flat-four" width="100%">
 
 Opposing pistons travel towards each other, and each one has **its own crankpin, offset by
 180°**: that is exactly what separates a boxer from a 180° V engine. The firing order is
@@ -262,7 +274,7 @@ on the chart.
 
 ## 🧭 Engine operating map
 
-<img src="docs/chart-map.png" alt="Engine operating map" width="52%" align="right">
+<img src="docs/en/chart-map.png" alt="Engine operating map" width="52%" align="right">
 
 A 24×16 grid over the speed × load axes is computed in 0.4 seconds and shows where the engine
 is economical and where it is not. The contour lines are BSFC, the red hatching is the knock
@@ -276,7 +288,7 @@ useful work falls off faster than friction and pumping losses.
 
 ## 🌍 Two languages
 
-<img src="docs/english.png" alt="English interface" width="100%">
+<img src="docs/power.png" alt="English interface" width="100%">
 
 The **RU / EN** switch in the console header changes the language of everything on the fly — the
 panel, the theory, all eight charts and the part labels in 3D. Your choice is remembered, and

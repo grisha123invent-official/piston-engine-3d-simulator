@@ -4,109 +4,227 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>3D-симулятор четырёхтактного двигателя</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#0d1117; --panel:rgba(22,27,34,.93); --border:#30363d;
-    --text:#e6edf3; --muted:#8b949e; --accent:#58a6ff;
-    --intake:#3b82f6; --compress:#a855f7; --power:#f97316; --exhaust:#6b7280;
-    --ok:#2ea043; --warn:#f0883e; --bad:#f85149;
+    /* графит испытательного стенда */
+    --bg:#080a0e;
+    --panel-1:#11151c;
+    --panel-2:#0c1016;
+    --line:#222b38;
+    --line-soft:#1a222d;
+    --text:#e8eef6;
+    --dim:#7d8b9c;
+    --dimmer:#55616f;
+
+    /* приборные акценты */
+    --cyan:#3ddbd9;
+    --cyan-dim:#1f7a79;
+    --amber:#ffb45c;
+    --red:#ff5e57;
+    --green:#4ade80;
+
+    /* фазы цикла */
+    --intake:#4a9eff;
+    --compress:#b26bff;
+    --power:#ff8a3c;
+    --exhaust:#8b98a8;
+
+    --mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
+    --sans:'IBM Plex Sans',-apple-system,'Segoe UI',sans-serif;
   }
-  *{box-sizing:border-box; margin:0; padding:0;}
+  *{box-sizing:border-box;margin:0;padding:0;}
   html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);
-    font-family:-apple-system,'Segoe UI',Roboto,sans-serif;}
+    font-family:var(--sans);font-size:13px;-webkit-font-smoothing:antialiased;}
   #scene{position:absolute;inset:0;}
   #labels{position:absolute;inset:0;pointer-events:none;z-index:1;}
-  .lbl{color:#cdd9e5;font-size:11px;background:rgba(13,17,23,.72);padding:2px 7px;
-    border-radius:10px;border:1px solid #30363d;white-space:nowrap;}
+  .lbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.02em;color:#c3d0de;
+    background:rgba(8,10,14,.78);padding:2px 7px;border-radius:3px;border:1px solid #26303d;
+    white-space:nowrap;}
 
-  .panel{position:absolute;background:var(--panel);border:1px solid var(--border);
-    border-radius:12px;backdrop-filter:blur(6px);z-index:5;}
-  #left{top:10px;left:10px;width:286px;padding:12px;max-height:calc(100vh - 82px);overflow-y:auto;}
-  #right{top:10px;right:10px;width:392px;bottom:74px;display:flex;flex-direction:column;}
+  /* ─────────── панели: графитовая плита с уголками ─────────── */
+  .panel{position:absolute;z-index:5;
+    background:linear-gradient(160deg,var(--panel-1) 0%,var(--panel-2) 100%);
+    border:1px solid var(--line);border-radius:4px;
+    box-shadow:0 18px 50px -12px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.035);}
+  .panel::before,.panel::after{content:'';position:absolute;width:11px;height:11px;
+    border:1px solid var(--cyan);opacity:.5;pointer-events:none;}
+  .panel::before{top:-1px;left:-1px;border-right:0;border-bottom:0;}
+  .panel::after{bottom:-1px;right:-1px;border-left:0;border-top:0;}
 
-  h1{font-size:13.5px;margin-bottom:9px;color:var(--accent);}
-  .row{display:flex;align-items:center;gap:6px;margin:7px 0;}
-  button{background:#21262d;color:var(--text);border:1px solid var(--border);border-radius:8px;
-    padding:6px 9px;cursor:pointer;font-size:12.5px;font-family:inherit;}
-  button:hover{background:#30363d;}
-  button.primary{background:#1f6feb;border-color:#1f6feb;font-weight:600;flex:1;}
-  button.primary:hover{background:#388bfd;}
-  button.on{background:#1f6feb33;border-color:var(--accent);color:var(--accent);}
-  .seg{display:flex;gap:5px;}
-  .seg button{flex:1;font-size:12px;padding:5px 3px;}
-  input[type=range]{width:100%;accent-color:var(--accent);height:16px;}
-  .ctl{margin:8px 0;}
-  .ctl label{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin-bottom:2px;}
-  .ctl label b{color:var(--text);font-variant-numeric:tabular-nums;}
-  .chk{display:flex;align-items:center;gap:6px;font-size:12px;margin:4px 0;cursor:pointer;}
-  .chk input{accent-color:var(--accent);}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;}
-  .hint{font-size:10.5px;color:var(--muted);line-height:1.45;margin-top:3px;}
-  .sep{height:1px;background:var(--border);margin:10px 0 8px;}
-  .sect{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:2px 0 4px;}
+  #left{top:10px;left:10px;width:302px;max-height:calc(100vh - 92px);overflow-y:auto;
+    scrollbar-width:thin;scrollbar-color:#2a3542 transparent;}
+  #right{top:10px;right:10px;width:404px;bottom:82px;display:flex;flex-direction:column;}
 
-  #strokeBadge{font-size:16px;font-weight:700;text-align:center;padding:7px;border-radius:8px;
-    margin-bottom:6px;background:#21262d;transition:background .3s,color .3s;}
-  #angleReadout{font-variant-numeric:tabular-nums;font-size:11.5px;color:var(--muted);
-    text-align:center;margin-bottom:7px;}
-  #knockBanner{display:none;margin:6px 0;padding:6px 8px;border-radius:8px;font-size:11.5px;
-    background:#f8514922;border:1px solid var(--bad);color:#ffb3ad;line-height:1.4;}
-  #knockBanner.show{display:block;}
+  /* ─────────── шапка левой панели: указатель угла ─────────── */
+  #head{display:flex;gap:12px;align-items:center;padding:13px 14px 11px;
+    border-bottom:1px solid var(--line-soft);
+    background:radial-gradient(120% 140% at 0% 0%,rgba(61,219,217,.07),transparent 60%);}
+  #dialWrap{position:relative;width:76px;height:76px;flex:none;}
+  #dial{width:76px;height:76px;transform:rotate(-90deg);}
+  #dialText{position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;pointer-events:none;}
+  #dialAngle{font-family:var(--mono);font-size:16px;font-weight:600;line-height:1;}
+  #dialSub{font-size:8.5px;letter-spacing:.14em;color:var(--dimmer);margin-top:3px;}
+  #headInfo{min-width:0;flex:1;}
+  #strokeBadge{font-size:13.5px;font-weight:700;letter-spacing:.02em;line-height:1.2;
+    transition:color .3s;}
+  #angleReadout{font-family:var(--mono);font-size:10px;color:var(--dimmer);margin-top:3px;
+    letter-spacing:.01em;}
+  #headStats{display:flex;gap:10px;margin-top:8px;font-family:var(--mono);font-size:10px;}
+  #headStats div{color:var(--dim);}
+  #headStats b{display:block;color:var(--text);font-size:12px;font-weight:600;}
 
-  /* ── правая панель с вкладками ── */
-  #tabs{display:flex;gap:4px;padding:10px 10px 0;}
-  #tabs button{flex:1;border-radius:8px 8px 0 0;font-size:12px;}
-  #tabBody{flex:1;overflow-y:auto;padding:10px;scrollbar-width:thin;}
-  .tabpane{display:none;} .tabpane.on{display:block;}
+  /* ─────────── секции ─────────── */
+  .sect{border-bottom:1px solid var(--line-soft);}
+  .sect > summary{list-style:none;cursor:pointer;padding:9px 14px;display:flex;
+    align-items:center;gap:8px;font-size:9.5px;font-weight:600;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--dim);user-select:none;}
+  .sect > summary::-webkit-details-marker{display:none;}
+  .sect > summary::after{content:'';flex:1;height:1px;
+    background:linear-gradient(90deg,var(--line),transparent);}
+  .sect > summary::before{content:'▸';color:var(--cyan);font-size:10px;transition:transform .2s;}
+  .sect[open] > summary::before{transform:rotate(90deg);}
+  .sect > summary:hover{color:var(--text);}
+  .body{padding:2px 14px 13px;}
 
-  .stage{border:1px solid var(--border);border-radius:10px;padding:9px 11px;margin-bottom:7px;
-    opacity:.5;transition:all .3s;}
-  .stage h3{font-size:12.5px;margin-bottom:4px;}
-  .stage p{font-size:11.5px;line-height:1.5;color:#c9d1d9;}
-  .stage small{display:block;margin-top:4px;color:var(--muted);font-size:10.5px;line-height:1.45;}
-  .stage.active{opacity:1;box-shadow:0 0 0 1.5px var(--sc,#58a6ff);background:rgba(88,166,255,.06);}
-  .note{font-size:11px;line-height:1.55;color:#adbac7;border-top:1px solid var(--border);
-    margin-top:8px;padding-top:8px;}
+  /* ─────────── кнопки ─────────── */
+  button{font-family:var(--sans);font-size:12px;color:var(--text);cursor:pointer;
+    background:#181e27;border:1px solid var(--line);border-radius:3px;padding:6px 10px;
+    transition:background .15s,border-color .15s,color .15s;}
+  button:hover{background:#1f2733;border-color:#33404f;}
+  button:focus-visible{outline:2px solid var(--cyan);outline-offset:1px;}
+  button.on{background:rgba(61,219,217,.12);border-color:var(--cyan-dim);color:var(--cyan);}
+  #playBtn{width:100%;padding:9px;font-weight:600;letter-spacing:.05em;
+    background:linear-gradient(180deg,#1a5f5e,#12484a);border-color:#2c7d7c;color:#d8fffe;}
+  #playBtn:hover{background:linear-gradient(180deg,#22736f,#175455);}
+  .row{display:flex;gap:5px;margin:7px 0;}
+  .row button{flex:1;font-family:var(--mono);font-size:11px;padding:5px 2px;}
+  .seg{display:flex;gap:4px;margin:6px 0;}
+  .seg button{flex:1;font-size:11.5px;padding:6px 3px;}
+
+  /* пресеты */
+  .chips{display:flex;flex-wrap:wrap;gap:4px;}
+  .chips button{font-size:11px;padding:5px 9px;border-radius:12px;background:#141a23;}
+  .chips button:hover{border-color:var(--cyan-dim);color:var(--cyan);}
+
+  /* ─────────── слайдеры ─────────── */
+  .ctl{margin:11px 0 13px;}
+  .ctl:first-child{margin-top:7px;}
+  .ctl .cap{display:flex;justify-content:space-between;align-items:baseline;
+    font-size:11.5px;color:var(--dim);margin-bottom:6px;gap:8px;}
+  .ctl .cap b{font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--text);
+    white-space:nowrap;}
+  .ctl .cap b i{font-style:normal;font-size:10px;color:var(--dim);margin-left:2px;}
+  .ctl .note{font-size:10px;color:var(--dimmer);margin-top:5px;line-height:1.45;}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:16px;
+    background:transparent;cursor:pointer;display:block;}
+  input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;
+    background:linear-gradient(90deg,var(--cyan-dim) var(--fill,0%),#212a36 var(--fill,0%));}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:16px;
+    margin-top:-6.5px;border-radius:2px;background:linear-gradient(180deg,#dbe6f2,#8d9dad);
+    border:1px solid #0a0d12;box-shadow:0 1px 3px rgba(0,0,0,.7);}
+  input[type=range]:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 2px var(--cyan);}
+  input[type=range]:disabled{opacity:.35;cursor:not-allowed;}
+  .ticks{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;
+    color:var(--dimmer);margin-top:1px;}
+
+  /* ─────────── переключатели ─────────── */
+  .switches{display:grid;grid-template-columns:1fr 1fr;gap:3px 12px;}
+  .sw{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--dim);
+    cursor:pointer;padding:3px 0;user-select:none;}
+  .sw input{appearance:none;-webkit-appearance:none;width:26px;height:14px;flex:none;
+    border-radius:2px;background:#1b222c;border:1px solid var(--line);position:relative;
+    cursor:pointer;transition:background .18s,border-color .18s;}
+  .sw input::after{content:'';position:absolute;top:1px;left:1px;width:10px;height:10px;
+    border-radius:1px;background:#5b6876;transition:transform .18s,background .18s;}
+  .sw input:checked{background:rgba(61,219,217,.16);border-color:var(--cyan-dim);}
+  .sw input:checked::after{transform:translateX(12px);background:var(--cyan);}
+  .sw input:focus-visible{outline:2px solid var(--cyan);outline-offset:1px;}
+  .sw:has(input:checked){color:var(--text);}
+
+  /* ─────────── предупреждение о детонации ─────────── */
+  #knockBanner{display:none;margin:10px 14px 0;padding:8px 10px;border-radius:3px;
+    font-size:11px;line-height:1.45;color:#ffd0cc;
+    background:linear-gradient(180deg,rgba(255,94,87,.16),rgba(255,94,87,.06));
+    border:1px solid rgba(255,94,87,.45);border-left:3px solid var(--red);}
+  #knockBanner.show{display:block;animation:knockIn .35s ease;}
+  #knockBanner b{color:#fff;}
+  @keyframes knockIn{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:none;}}
+
+  /* ─────────── правая панель ─────────── */
+  #tabs{display:flex;gap:3px;padding:9px 9px 0;}
+  #tabs button{flex:1;border-radius:3px 3px 0 0;font-size:11.5px;padding:7px 3px;
+    border-bottom-color:transparent;}
+  #tabs button.on{background:rgba(61,219,217,.1);border-color:var(--cyan-dim);}
+  #tabBody{flex:1;overflow-y:auto;padding:11px;scrollbar-width:thin;
+    scrollbar-color:#2a3542 transparent;}
+  .tabpane{display:none;}.tabpane.on{display:block;}
+
+  .stage{border:1px solid var(--line-soft);border-radius:3px;padding:10px 12px;margin-bottom:7px;
+    opacity:.45;transition:opacity .3s,background .3s,border-color .3s;position:relative;}
+  .stage::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;
+    background:var(--sc);opacity:.25;transition:opacity .3s;}
+  .stage.active{opacity:1;background:rgba(61,219,217,.035);border-color:#2b3746;}
+  .stage.active::before{opacity:1;}
+  .stage h3{font-size:12px;font-weight:600;letter-spacing:.04em;margin-bottom:5px;}
+  .stage p{font-size:11.5px;line-height:1.55;color:#c2ccd8;}
+  .stage small{display:block;margin-top:5px;color:var(--dimmer);font-size:10.5px;line-height:1.5;}
+  .note{font-size:11px;line-height:1.6;color:#a8b4c2;border-top:1px solid var(--line-soft);
+    margin-top:9px;padding-top:9px;}
   .note b{color:var(--text);}
-  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:-1px;}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:1px;margin-right:4px;
+    vertical-align:0;}
 
-  #chartTabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;}
-  #chartTabs button{font-size:11px;padding:4px 7px;}
-  #chartHost{width:100%;height:min(56vh,470px);min-height:300px;}
-  #chartHint{font-size:11px;color:var(--muted);line-height:1.5;margin-top:8px;}
+  #chartHost{width:100%;height:min(54vh,460px);min-height:290px;}
+  #chartHint{font-size:11px;color:var(--dim);line-height:1.55;margin-top:9px;
+    border-left:2px solid var(--cyan-dim);padding-left:9px;}
 
   table.metrics{width:100%;border-collapse:collapse;font-size:11.5px;}
-  table.metrics td{padding:3px 0;border-bottom:1px solid #21262d;}
-  table.metrics td:last-child{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;}
-  table.metrics tr.head td{color:var(--accent);font-weight:600;border-bottom-color:var(--border);
-    padding-top:9px;text-transform:uppercase;font-size:10px;letter-spacing:.05em;}
+  table.metrics td{padding:4px 0;border-bottom:1px solid #171e27;color:var(--dim);}
+  table.metrics td:last-child{text-align:right;font-family:var(--mono);font-weight:600;
+    color:var(--text);}
+  table.metrics tr.head td{color:var(--cyan);font-weight:600;border-bottom-color:var(--line);
+    padding-top:11px;text-transform:uppercase;font-size:9.5px;letter-spacing:.14em;}
 
-  /* ── нижняя шкала цикла ── */
-  #timeline{position:absolute;left:10px;right:10px;bottom:10px;height:52px;padding:7px 12px;}
-  #tlTrack{position:relative;height:12px;border-radius:6px;overflow:hidden;display:flex;cursor:pointer;}
-  #tlTrack div{height:100%;}
-  #tlMarker{position:absolute;top:1px;width:2px;height:24px;background:#fff;border-radius:1px;
-    box-shadow:0 0 6px #fff;pointer-events:none;}
-  #tlNames{display:flex;font-size:10px;color:var(--muted);margin-top:3px;}
+  /* ─────────── нижняя приборная линейка ─────────── */
+  #timeline{position:absolute;left:10px;right:10px;bottom:10px;padding:9px 14px 8px;}
+  #tlTrack{position:relative;height:10px;border-radius:2px;overflow:hidden;display:flex;
+    cursor:pointer;box-shadow:inset 0 1px 2px rgba(0,0,0,.6);}
+  #tlTrack div{height:100%;opacity:.85;}
+  #tlMarker{position:absolute;top:-2px;width:2px;height:14px;background:#fff;border-radius:1px;
+    box-shadow:0 0 8px rgba(255,255,255,.9);pointer-events:none;}
+  #tlNames{display:flex;font-family:var(--mono);font-size:9.5px;color:var(--dimmer);
+    margin-top:4px;letter-spacing:.08em;text-transform:uppercase;}
   #tlNames span{flex:1;text-align:center;}
-  #tlFacts{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);margin-top:3px;}
-  #tlFacts b{color:var(--text);font-variant-numeric:tabular-nums;}
+  #tlFacts{display:flex;gap:18px;margin-top:7px;padding-top:7px;
+    border-top:1px solid var(--line-soft);}
+  #tlFacts > div{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dimmer);}
+  #tlFacts b{display:block;font-family:var(--mono);font-size:13px;font-weight:600;
+    color:var(--text);letter-spacing:0;margin-top:2px;}
+  #tlFacts .grow{flex:1;}
+
+  #panelToggle{display:none;position:absolute;right:10px;bottom:96px;z-index:7;
+    background:linear-gradient(180deg,#1a5f5e,#12484a);border-color:#2c7d7c;color:#d8fffe;
+    border-radius:20px;padding:9px 15px;font-weight:600;}
 
   #err{position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:20;display:none;
-    background:#f8514922;border:1px solid var(--bad);color:#ffb3ad;padding:8px 14px;border-radius:9px;
-    font-size:12px;max-width:60vw;}
+    background:rgba(255,94,87,.14);border:1px solid rgba(255,94,87,.5);color:#ffd0cc;
+    padding:9px 15px;border-radius:3px;font-size:12px;max-width:60vw;font-family:var(--mono);}
 
-  /* ── узкие экраны: правая панель превращается в выдвижную шторку ── */
-  #panelToggle{display:none;position:absolute;right:10px;bottom:70px;z-index:7;
-    background:#1f6feb;border-color:#1f6feb;font-weight:600;border-radius:20px;padding:8px 14px;}
-  @media (max-width:1100px){
+  @media (max-width:1180px){
     #panelToggle{display:block;}
-    #right{left:10px;right:10px;width:auto;top:auto;height:min(62vh,560px);bottom:70px;
-      transform:translateY(calc(100% + 80px));transition:transform .28s ease;}
+    #right{left:10px;right:10px;width:auto;top:auto;height:min(62vh,560px);bottom:88px;
+      transform:translateY(calc(100% + 100px));transition:transform .3s cubic-bezier(.4,0,.2,1);}
     #right.open{transform:none;}
-    #chartHost{height:min(38vh,340px);}
+    #chartHost{height:min(36vh,320px);}
   }
-  @media (max-width:620px){ #left{width:calc(100vw - 20px);max-height:40vh;} }
+  @media (max-width:640px){
+    #left{width:calc(100vw - 20px);max-height:42vh;}
+    #tlFacts{gap:11px;flex-wrap:wrap;}
+  }
 </style>
 <script type="importmap">
 { "imports": {
@@ -120,164 +238,247 @@
 <div id="labels"></div>
 <div id="err"></div>
 
-<!-- ══════════ левая панель: управление ══════════ -->
+<!-- ══════════════ ЛЕВАЯ ПАНЕЛЬ ══════════════ -->
 <div class="panel" id="left">
-  <h1>⚙️ Двигатель: 4 такта в 3D</h1>
-  <div id="strokeBadge">—</div>
-  <div id="angleReadout">угол коленвала: 0° / 720°</div>
+
+  <div id="head">
+    <div id="dialWrap">
+      <svg id="dial" viewBox="0 0 76 76">
+        <circle cx="38" cy="38" r="31" fill="none" stroke="#1a222d" stroke-width="7"/>
+        <g id="dialArcs" fill="none" stroke-width="7"></g>
+        <circle cx="38" cy="38" r="24.5" fill="none" stroke="#141a23" stroke-width="1"/>
+        <line id="dialNeedle" x1="38" y1="38" x2="38" y2="10" stroke="#fff" stroke-width="1.6"
+              stroke-linecap="round" transform-origin="38 38"/>
+        <circle cx="38" cy="38" r="2.4" fill="#e8eef6"/>
+      </svg>
+      <div id="dialText">
+        <div id="dialAngle">0°</div>
+        <div id="dialSub">УГОЛ</div>
+      </div>
+    </div>
+    <div id="headInfo">
+      <div id="strokeBadge">—</div>
+      <div id="angleReadout">оборот 1 / 2</div>
+      <div id="headStats">
+        <div>кВт<b id="hPower">—</b></div>
+        <div>Н·м<b id="hTorque">—</b></div>
+        <div>об/мин<b id="hRpm">—</b></div>
+      </div>
+    </div>
+  </div>
+
   <div id="knockBanner"></div>
 
-  <div class="row"><button class="primary" id="playBtn">⏸ Пауза</button></div>
-  <div class="row">
-    <button id="stepB" title="назад 15°">−15°</button>
-    <button id="stepF" title="вперёд 15°">+15°</button>
-    <button id="prevStroke">⏮ такт</button>
-    <button id="nextStroke">такт ⏭</button>
+  <div class="body" style="padding-top:11px">
+    <button id="playBtn">⏸ ПАУЗА</button>
+    <div class="row">
+      <button id="stepB" title="назад 15°">−15°</button>
+      <button id="stepF" title="вперёд 15°">+15°</button>
+      <button id="prevStroke">◂ такт</button>
+      <button id="nextStroke">такт ▸</button>
+    </div>
+    <div class="ctl" style="margin:9px 0 0">
+      <div class="cap"><span>Перемотка по углу</span><b id="scrubVal">0°</b></div>
+      <input type="range" id="scrub" min="0" max="720" value="0" step="1">
+    </div>
   </div>
 
-  <div class="ctl">
-    <label>Угол коленвала (перемотка)<b id="scrubVal">0°</b></label>
-    <input type="range" id="scrub" min="0" max="720" value="0" step="1">
-  </div>
+  <details class="sect" open>
+    <summary>Быстрые режимы</summary>
+    <div class="body">
+      <div class="chips" id="presets">
+        <button data-preset="city">Город</button>
+        <button data-preset="wot">Полный газ</button>
+        <button data-preset="turbo">Турбо</button>
+        <button data-preset="knock">Детонация</button>
+        <button data-preset="diesel">Дизель</button>
+        <button data-preset="two">Два такта</button>
+        <button data-preset="v8">V8</button>
+        <button data-preset="idle">Холостой</button>
+      </div>
+      <div class="note" style="border:0;margin:8px 0 0;padding:0;font-size:10px;color:var(--dimmer)">
+        Один клик — целый сценарий: компоновка, топливо, обороты и настройки сразу.
+      </div>
+    </div>
+  </details>
 
-  <div class="sep"></div>
-  <div class="sect">Режим двигателя</div>
-  <div class="seg" style="margin-bottom:6px">
-    <button data-fuel="petrol" class="on">Бензин</button>
-    <button data-fuel="diesel">Дизель</button>
-  </div>
-  <div class="seg">
-    <button data-cyl="1" class="on">1 цилиндр</button>
-    <button data-cyl="4">Рядная 4</button>
-  </div>
+  <details class="sect" open>
+    <summary>Компоновка и топливо</summary>
+    <div class="body">
+      <div class="seg">
+        <button data-layout="single" class="on">1 цилиндр</button>
+        <button data-layout="i4">Рядная 4</button>
+        <button data-layout="v8">V8</button>
+      </div>
+      <div class="seg">
+        <button data-fuel="petrol" class="on">Бензин</button>
+        <button data-fuel="diesel">Дизель</button>
+        <button data-cycle="2t">2 такта</button>
+      </div>
+      <div class="note" id="layoutNote" style="border:0;margin:6px 0 0;padding:0;font-size:10px;
+        color:var(--dimmer)">Четырёхтактный, атмосферный, искровое зажигание.</div>
+    </div>
+  </details>
 
-  <div class="ctl">
-    <label>Обороты<b><span id="rpmVal">2400</span> об/мин</b></label>
-    <input type="range" id="rpm" min="800" max="6000" value="2400" step="50">
-  </div>
-  <div class="ctl">
-    <label>Дроссель (нагрузка)<b id="thrVal">100 %</b></label>
-    <input type="range" id="throttle" min="5" max="100" value="100" step="1">
-  </div>
-  <div class="ctl">
-    <label>Степень сжатия ε<b id="epsVal">10.0</b></label>
-    <input type="range" id="eps" min="8" max="22" value="10" step="0.5">
-  </div>
-  <div class="ctl">
-    <label>Опережение зажигания<b><span id="advVal">18</span>° до ВМТ</b></label>
-    <input type="range" id="advance" min="0" max="45" value="18" step="1">
-  </div>
-  <div class="ctl">
-    <label>Октановое число топлива<b id="octVal">95</b></label>
-    <input type="range" id="octane" min="80" max="102" value="95" step="1">
-  </div>
-  <div class="ctl">
-    <label>Замедление показа<b id="slowVal">×100</b></label>
-    <input type="range" id="slowmo" min="0" max="5" value="3" step="1">
-    <div class="hint" id="slowHint"></div>
-  </div>
+  <details class="sect" open>
+    <summary>Режим работы</summary>
+    <div class="body">
+      <div class="ctl">
+        <div class="cap"><span>Обороты</span><b><span id="rpmVal">2400</span><i>об/мин</i></b></div>
+        <input type="range" id="rpm" min="800" max="6000" value="2400" step="50">
+        <div class="ticks"><span>800</span><span>3400</span><span>6000</span></div>
+      </div>
+      <div class="ctl">
+        <div class="cap"><span>Дроссель — нагрузка</span><b><span id="thrVal">100</span><i>%</i></b></div>
+        <input type="range" id="throttle" min="5" max="100" value="100" step="1">
+      </div>
+      <div class="ctl">
+        <div class="cap"><span>Замедление показа</span><b id="slowVal">×100</b></div>
+        <input type="range" id="slowmo" min="0" max="5" value="3" step="1">
+        <div class="note" id="slowHint"></div>
+      </div>
+    </div>
+  </details>
 
-  <div class="sep"></div>
-  <div class="sect">Что показывать</div>
-  <div class="grid2">
-    <label class="chk"><input type="checkbox" id="cutaway" checked>Разрез</label>
-    <label class="chk"><input type="checkbox" id="showLabels" checked>Подписи</label>
-    <label class="chk"><input type="checkbox" id="fGas" checked>Газ</label>
-    <label class="chk"><input type="checkbox" id="fFuel" checked>Топливо</label>
-    <label class="chk"><input type="checkbox" id="fExhaust" checked>Выхлоп</label>
-    <label class="chk"><input type="checkbox" id="fOil" checked>Масло</label>
-    <label class="chk"><input type="checkbox" id="fCoolant" checked>Охлаждение</label>
-    <label class="chk"><input type="checkbox" id="sound">Звук</label>
-  </div>
+  <details class="sect">
+    <summary>Наддув</summary>
+    <div class="body">
+      <div class="switches" style="margin-bottom:4px">
+        <label class="sw"><input type="checkbox" id="turbo">Турбина</label>
+        <label class="sw"><input type="checkbox" id="intercooler" checked>Интеркулер</label>
+      </div>
+      <div class="ctl">
+        <div class="cap"><span>Давление наддува</span><b><span id="boostVal">0.0</span><i>бар</i></b></div>
+        <input type="range" id="boost" min="0" max="1.5" value="0" step="0.05">
+        <div class="note" id="boostNote">Атмосферный впуск. Наддув поднимает мощность,
+          но приближает детонацию — интеркулер снимает часть риска.</div>
+      </div>
+    </div>
+  </details>
 
-  <div class="sect" style="margin-top:9px">Камера</div>
-  <div class="seg">
-    <button data-cam="side">Сбоку</button>
-    <button data-cam="iso" class="on">3/4</button>
-    <button data-cam="front">Спереди</button>
-    <button data-cam="top">Сверху</button>
-  </div>
-  <div class="hint">🖱 вращение — ЛКМ, зум — колесо, сдвиг — ПКМ · пробел — пауза, ←/→ — шаг</div>
+  <details class="sect">
+    <summary>Настройка</summary>
+    <div class="body">
+      <div class="ctl">
+        <div class="cap"><span>Степень сжатия ε</span><b id="epsVal">10.0</b></div>
+        <input type="range" id="eps" min="8" max="22" value="10" step="0.5">
+        <div class="ticks"><span>8</span><span>15</span><span>22</span></div>
+      </div>
+      <div class="ctl">
+        <div class="cap"><span>Опережение зажигания</span><b><span id="advVal">18</span><i>° до ВМТ</i></b></div>
+        <input type="range" id="advance" min="0" max="45" value="18" step="1">
+      </div>
+      <div class="ctl">
+        <div class="cap"><span>Октановое число</span><b id="octVal">95</b></div>
+        <input type="range" id="octane" min="80" max="102" value="95" step="1">
+      </div>
+      <div class="ctl">
+        <div class="cap"><span>Длина впускного тракта</span><b><span id="intakeLenVal">350</span><i>мм</i></b></div>
+        <input type="range" id="intakeLen" min="150" max="900" value="350" step="10">
+        <div class="note">Настроенный впуск: короткий тракт двигает пик момента вверх
+          по оборотам, длинный — вниз. Смотри график «Характеристика».</div>
+      </div>
+    </div>
+  </details>
+
+  <details class="sect">
+    <summary>Показ и звук</summary>
+    <div class="body">
+      <div class="switches">
+        <label class="sw"><input type="checkbox" id="cutaway" checked>Разрез</label>
+        <label class="sw"><input type="checkbox" id="showLabels" checked>Подписи</label>
+        <label class="sw"><input type="checkbox" id="fGas" checked>Газ</label>
+        <label class="sw"><input type="checkbox" id="fFuel" checked>Топливо</label>
+        <label class="sw"><input type="checkbox" id="fExhaust" checked>Выхлоп</label>
+        <label class="sw"><input type="checkbox" id="fOil" checked>Масло</label>
+        <label class="sw"><input type="checkbox" id="fCoolant" checked>Охлаждение</label>
+        <label class="sw"><input type="checkbox" id="sound">Звук</label>
+      </div>
+      <div class="ctl" id="volCtl" style="display:none">
+        <div class="cap"><span>Громкость</span><b><span id="volVal">50</span><i>%</i></b></div>
+        <input type="range" id="volume" min="0" max="100" value="50" step="1">
+      </div>
+      <div class="seg" style="margin-top:9px">
+        <button data-cam="side">Сбоку</button>
+        <button data-cam="iso" class="on">3/4</button>
+        <button data-cam="front">Спереди</button>
+        <button data-cam="top">Сверху</button>
+      </div>
+      <div class="note" style="border:0;padding:0;margin-top:8px;font-size:10px;color:var(--dimmer)">
+        ЛКМ — поворот · колесо — зум · ПКМ — сдвиг · пробел — пауза · ←/→ — шаг
+      </div>
+    </div>
+  </details>
 </div>
 
-<button id="panelToggle">📖 Теория и графики</button>
+<button id="panelToggle">Теория и графики</button>
 
-<!-- ══════════ правая панель: теория, графики, показатели ══════════ -->
+<!-- ══════════════ ПРАВАЯ ПАНЕЛЬ ══════════════ -->
 <div class="panel" id="right">
   <div id="tabs">
-    <button data-tab="stages" class="on">📖 Такты</button>
-    <button data-tab="charts">📈 Графики</button>
-    <button data-tab="metrics">📊 Показатели</button>
+    <button data-tab="stages" class="on">Такты</button>
+    <button data-tab="charts">Графики</button>
+    <button data-tab="metrics">Показатели</button>
   </div>
   <div id="tabBody">
 
-    <!-- ── вкладка «Такты» ── -->
     <div class="tabpane on" id="pane-stages">
       <div class="stage" id="st0" style="--sc:var(--intake)">
-        <h3 style="color:var(--intake)">1. ВПУСК (0–180°)</h3>
+        <h3 style="color:var(--intake)">1 · ВПУСК — 0…180°</h3>
         <p>Поршень идёт от ВМТ вниз, <b>впускной клапан открыт</b> (открывается за ~20° до ВМТ).
-        Объём растёт, давление падает ниже атмосферного, и разрежение засасывает свежий заряд.
-        Форсунка впрыскивает распылённый бензин: смесь получается стехиометрической —
-        ~14,7 кг воздуха на 1 кг топлива. Сколько заряда реально влезло, показывает
-        <b>коэффициент наполнения</b> — он падает и на низких, и на очень высоких оборотах.</p>
-        <small>Клапан закрывается на ~50° позже НМТ: поток по инерции продолжает наполнять цилиндр.
-        Дроссель прикрывает впуск — падает давление в коллекторе, а с ним мощность.</small>
+        Разрежение засасывает свежий заряд, форсунка впрыскивает топливо — смесь
+        стехиометрическая, ~14,7 кг воздуха на 1 кг бензина. Сколько заряда реально влезло,
+        показывает <b>коэффициент наполнения</b>: он зависит от оборотов, дросселя и настройки
+        впускного тракта.</p>
+        <small>Клапан закрывается на ~50° позже НМТ — поток по инерции продолжает наполнять цилиндр.</small>
       </div>
       <div class="stage" id="st1" style="--sc:var(--compress)">
-        <h3 style="color:var(--compress)">2. СЖАТИЕ (180–360°)</h3>
-        <p>Оба клапана закрыты, поршень сжимает смесь в ε раз. Процесс близок к адиабатному:
-        <b>p·V<sup>γ</sup> ≈ const</b>, поэтому газ разогревается сам, без всякого пламени.
-        За несколько десятков градусов до ВМТ проскакивает искра — <b>опережение зажигания</b>
-        нужно потому, что сгорание занимает время, а максимум давления должен прийтись
-        на 10–15° после ВМТ, когда кривошип уже может превратить силу в момент.</p>
-        <small>Момент на этом такте отрицательный: двигатель тратит энергию маховика. Чем выше ε,
-        тем выше КПД — но тем ближе несгоревшая смесь к самовоспламенению и детонации.</small>
+        <h3 style="color:var(--compress)">2 · СЖАТИЕ — 180…360°</h3>
+        <p>Оба клапана закрыты, смесь сжимается в ε раз. Процесс близок к адиабатному:
+        <b>p·V<sup>γ</sup> ≈ const</b>, газ разогревается сам. За несколько десятков градусов
+        до ВМТ проскакивает искра — <b>опережение</b> нужно потому, что сгорание занимает время,
+        а максимум давления должен прийтись на 10–15° после ВМТ.</p>
+        <small>Момент на этом такте отрицательный: двигатель живёт за счёт маховика.</small>
       </div>
       <div class="stage" id="st2" style="--sc:var(--power)">
-        <h3 style="color:var(--power)">3. РАБОЧИЙ ХОД (360–540°)</h3>
-        <p>Фронт пламени проходит камеру за тысячные доли секунды; доля сгоревшего топлива
-        описывается <b>функцией Вибе</b>. Давление и температура достигают максимума, газы
-        расширяются и толкают поршень вниз — единственный такт, где совершается полезная работа.
-        Через шатун сила даёт момент: <b>M = F·r·(sin θ + λ·sin 2θ / 2)</b>, где λ = r/L.</p>
-        <small>Площадь петли на диаграмме p–V — это и есть работа за цикл. Часть тепла уходит
-        в стенки и с выхлопом, поэтому эффективный КПД заметно ниже идеального.</small>
+        <h3 style="color:var(--power)">3 · РАБОЧИЙ ХОД — 360…540°</h3>
+        <p>Доля сгоревшего топлива описывается <b>функцией Вибе</b>. Давление и температура
+        достигают максимума, газы толкают поршень вниз — единственный такт, где совершается
+        полезная работа. Момент считается с учётом конечной длины шатуна:
+        <b>M = F·r·(sin θ + λ·sin 2θ / 2)</b>.</p>
+        <small>Площадь петли на диаграмме p–V — это и есть работа за цикл.</small>
       </div>
       <div class="stage" id="st3" style="--sc:var(--exhaust)">
-        <h3 style="color:#9ca3af">4. ВЫПУСК (540–720°)</h3>
+        <h3 style="color:#9aa8b8">4 · ВЫПУСК — 540…720°</h3>
         <p>Выпускной клапан открывается за ~50° до НМТ: остаточное давление само выбрасывает
-        первую порцию газов (свободный выпуск). Затем поршень выталкивает остальное.
-        У ВМТ есть <b>перекрытие клапанов</b> — оба приоткрыты, уходящий поток помогает
-        затянуть свежую смесь и продуть камеру от остаточных газов.</p>
-        <small>За полный цикл коленвал делает 2 оборота, а распредвалы — 1: смотри, как цепь
-        крутит их вдвое медленнее.</small>
+        первую порцию газов. Поршень выталкивает остальное. У ВМТ — <b>перекрытие клапанов</b>:
+        оба приоткрыты, уходящий поток помогает затянуть свежую смесь.</p>
+        <small>За цикл коленвал делает 2 оборота, распредвалы — 1: смотри, как цепь крутит их вдвое медленнее.</small>
       </div>
 
       <div class="note">
         <b>Цвета газа:</b>
-        <span class="dot" style="background:#4ea0ff"></span>смесь
-        <span class="dot" style="background:#b06bff"></span>сжатие
-        <span class="dot" style="background:#ff8a2a"></span>горение
-        <span class="dot" style="background:#9aa2ad"></span>выхлоп<br>
-        <b>Жидкости:</b> жёлтые капли — впрыск топлива, янтарные частицы — моторное масло
-        (насос → шейки коленвала → стенки цилиндра → поддон), сине-красный поток — антифриз
-        в рубашке охлаждения. В полезную работу уходит лишь около трети энергии топлива —
-        смотри вкладку «Показатели».
+        <span class="dot" style="background:#4a9eff"></span>смесь
+        <span class="dot" style="background:#b26bff"></span>сжатие
+        <span class="dot" style="background:#ff8a3c"></span>горение
+        <span class="dot" style="background:#8b98a8"></span>выхлоп<br>
+        <b>Жидкости:</b> жёлтые капли — впрыск, янтарные частицы — масло (насос → шейки →
+        стенки цилиндра → поддон), сине-красный поток — антифриз в рубашке.
+        В полезную работу уходит лишь около трети энергии топлива.
       </div>
       <div class="note">
-        <b>Детонация.</b> Если поднять степень сжатия или сделать зажигание слишком ранним,
-        несгоревшая часть смеси успевает самовоспламениться от сжатия — по критерию
-        Ливенгуда–Ву. Появится вспышка и предупреждение: это тот самый «стук пальцев»,
-        который разрушает поршни. Помогает более высокооктановое топливо или позднее зажигание.
+        <b>Детонация.</b> Подними степень сжатия, наддув или опережение — и несгоревшая смесь
+        самовоспламенится от сжатия раньше фронта пламени (критерий Ливенгуда–Ву). Появится
+        вспышка, ударная волна и характерный металлический стук в звуке. Лечится высоким
+        октановым числом, поздним зажиганием, интеркулером или меньшей нагрузкой.
       </div>
     </div>
 
-    <!-- ── вкладка «Графики» ── -->
     <div class="tabpane" id="pane-charts">
       <div id="chartHost"></div>
       <div id="chartHint"></div>
     </div>
 
-    <!-- ── вкладка «Показатели» ── -->
     <div class="tabpane" id="pane-metrics">
       <table class="metrics">
         <tr class="head"><td colspan="2">Мощность и момент</td></tr>
@@ -285,6 +486,7 @@
         <tr><td>Индикаторная мощность</td><td id="mPowerInd">—</td></tr>
         <tr><td>Крутящий момент</td><td id="mTorque">—</td></tr>
         <tr><td>Рабочий объём</td><td id="mDispl">—</td></tr>
+        <tr><td>Наддув</td><td id="mBoost">—</td></tr>
 
         <tr class="head"><td colspan="2">В цилиндре</td></tr>
         <tr><td>Максимальное давление</td><td id="mPmax">—</td></tr>
@@ -296,30 +498,30 @@
         <tr class="head"><td colspan="2">Эффективность</td></tr>
         <tr><td>КПД индикаторный</td><td id="mEffInd">—</td></tr>
         <tr><td>КПД эффективный</td><td id="mEffBrake">—</td></tr>
-        <tr><td>КПД идеального цикла Отто</td><td id="mEffOtto">—</td></tr>
+        <tr><td>КПД идеального цикла</td><td id="mEffOtto">—</td></tr>
         <tr><td>Удельный расход топлива</td><td id="mBsfc">—</td></tr>
 
         <tr class="head"><td colspan="2">Механика</td></tr>
         <tr><td>Средняя скорость поршня</td><td id="mPistonSpeed">—</td></tr>
         <tr><td>Неравномерность хода δ</td><td id="mFluct">—</td></tr>
-        <tr><td>Мгновенные обороты</td><td id="mRpmNow">—</td></tr>
+        <tr><td>Силы инерции: 1-й / 2-й порядок</td><td id="mBalance">—</td></tr>
         <tr><td>Детонация</td><td id="mKnock">—</td></tr>
       </table>
-      <div class="row" style="margin-top:10px">
+      <div class="row" style="margin-top:11px">
         <button id="btnCSV" style="flex:1">⤓ Скачать данные цикла (CSV)</button>
       </div>
-      <div class="note" style="margin-top:6px">
-        Модель однозонная: газ считается однородным, теплоотдача в стенки — по упрощённой
-        зависимости, трение — по эмпирической формуле FMEP. Цифры соответствуют порядку величин
-        реального двигателя 2,0 л и хорошо показывают тенденции, но это учебная модель,
-        а не расчёт для проектирования.
+      <div class="note">
+        Модель однозонная: газ считается однородным, теплоотдача — по упрощённой зависимости,
+        трение — по эмпирической формуле FMEP. Цифры соответствуют порядку величин реального
+        двигателя и хорошо показывают тенденции, но это учебная модель, а не расчёт
+        для проектирования.
       </div>
     </div>
 
   </div>
 </div>
 
-<!-- ══════════ нижняя шкала цикла ══════════ -->
+<!-- ══════════════ НИЖНЯЯ ЛИНЕЙКА ══════════════ -->
 <div class="panel" id="timeline">
   <div id="tlTrack">
     <div style="flex:1;background:var(--intake)"></div>
@@ -330,11 +532,13 @@
   </div>
   <div id="tlNames"><span>Впуск</span><span>Сжатие</span><span>Рабочий ход</span><span>Выпуск</span></div>
   <div id="tlFacts">
-    <span>давление: <b id="fP">—</b></span>
-    <span>температура: <b id="fT">—</b></span>
-    <span>сгорело: <b id="fX">—</b></span>
-    <span>момент: <b id="fM">—</b></span>
-    <span>обороты: <b id="fRpm">—</b></span>
+    <div>давление<b id="fP">—</b></div>
+    <div>температура<b id="fT">—</b></div>
+    <div>сгорело<b id="fX">—</b></div>
+    <div>момент<b id="fM">—</b></div>
+    <div>обороты<b id="fRpm">—</b></div>
+    <div class="grow"></div>
+    <div>наддув<b id="fBoost">—</b></div>
   </div>
 </div>
 

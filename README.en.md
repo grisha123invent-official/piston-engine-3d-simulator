@@ -371,7 +371,7 @@ git clone https://github.com/grisha123invent-official/piston-engine-3d-simulator
 cd piston-engine-3d-simulator && python3 -m http.server 8000
 ```
 
-Open <http://localhost:8000>. Three.js is pulled from a CDN.
+Open <http://localhost:8000>. Three.js ships with the repository (`vendor/`), so no internet access is needed.
 
 ## 📁 Structure
 

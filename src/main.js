@@ -6,14 +6,14 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 
-import { L, layoutSpec } from './layout.js';
-import { getLang, setLang, onLangChange, t, applyDom } from './i18n.js';
+import { L, layoutSpec } from './layout.js?v=5';
+import { getLang, setLang, onLangChange, t, applyDom } from './i18n.js?v=5';
 import { STAGES_4, STAGES_2, NOTES, CHART_HINTS, STROKE_NAMES_4, STROKE_NAMES_2,
-         TIMELINE_4, TIMELINE_2, UI } from './content.js';
-import { createEngine } from './physics.js';
-import { buildMechanism } from './engine3d.js';
-import { buildFluids } from './fluids3d.js';
-import { createCharts } from './charts.js';
+         TIMELINE_4, TIMELINE_2, UI } from './content.js?v=5';
+import { createEngine } from './physics.js?v=5';
+import { buildMechanism } from './engine3d.js?v=5';
+import { buildFluids } from './fluids3d.js?v=5';
+import { createCharts } from './charts.js?v=5';
 
 const $ = id => document.getElementById(id);
 
@@ -200,7 +200,7 @@ async function ensureSound(){
   if (sound || soundLoading) return sound;
   soundLoading = true;
   try {
-    const mod = await import('./sound.js');
+    const mod = await import('./sound.js?v=5');
     sound = mod.createEngineSound();
     sound.setVolume?.(state.volume);
     sound.setEnabled?.(true);

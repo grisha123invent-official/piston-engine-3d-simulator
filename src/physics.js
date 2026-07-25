@@ -32,7 +32,7 @@
  * индекс i ↔ угол i·0.5°.
  */
 
-import { layoutSpec } from './layout.js';
+import { layoutSpec } from './layout.js?v=5';
 
 /* ═══════════════════════════════ константы ═══════════════════════════════ */
 

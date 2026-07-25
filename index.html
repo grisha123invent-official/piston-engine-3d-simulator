@@ -6,72 +6,98 @@
 <title>3D-симулятор четырёхтактного двигателя</title>
 <style>
   :root{
-    --bg:#0d1117; --panel:rgba(22,27,34,.92); --border:#30363d;
+    --bg:#0d1117; --panel:rgba(22,27,34,.93); --border:#30363d;
     --text:#e6edf3; --muted:#8b949e; --accent:#58a6ff;
     --intake:#3b82f6; --compress:#a855f7; --power:#f97316; --exhaust:#6b7280;
+    --ok:#2ea043; --warn:#f0883e; --bad:#f85149;
   }
   *{box-sizing:border-box; margin:0; padding:0;}
   html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);
     font-family:-apple-system,'Segoe UI',Roboto,sans-serif;}
   #scene{position:absolute;inset:0;}
-  #labels{position:absolute;inset:0;pointer-events:none;}
+  #labels{position:absolute;inset:0;pointer-events:none;z-index:1;}
   .lbl{color:#cdd9e5;font-size:11px;background:rgba(13,17,23,.72);padding:2px 7px;
     border-radius:10px;border:1px solid #30363d;white-space:nowrap;}
 
-  /* ── левая панель управления ── */
-  #controls{position:absolute;top:12px;left:12px;width:270px;background:var(--panel);
-    border:1px solid var(--border);border-radius:12px;padding:14px;backdrop-filter:blur(6px);z-index:5;}
-  #controls h1{font-size:14px;margin-bottom:10px;color:var(--accent);}
-  .row{display:flex;align-items:center;gap:8px;margin:8px 0;}
+  .panel{position:absolute;background:var(--panel);border:1px solid var(--border);
+    border-radius:12px;backdrop-filter:blur(6px);z-index:5;}
+  #left{top:10px;left:10px;width:286px;padding:12px;max-height:calc(100vh - 82px);overflow-y:auto;}
+  #right{top:10px;right:10px;width:392px;bottom:74px;display:flex;flex-direction:column;}
+
+  h1{font-size:13.5px;margin-bottom:9px;color:var(--accent);}
+  .row{display:flex;align-items:center;gap:6px;margin:7px 0;}
   button{background:#21262d;color:var(--text);border:1px solid var(--border);border-radius:8px;
-    padding:6px 10px;cursor:pointer;font-size:13px;}
+    padding:6px 9px;cursor:pointer;font-size:12.5px;font-family:inherit;}
   button:hover{background:#30363d;}
   button.primary{background:#1f6feb;border-color:#1f6feb;font-weight:600;flex:1;}
   button.primary:hover{background:#388bfd;}
-  input[type=range]{width:100%;accent-color:var(--accent);}
-  label.small{font-size:12px;color:var(--muted);}
-  .chk{display:flex;align-items:center;gap:6px;font-size:12.5px;margin:5px 0;cursor:pointer;}
+  button.on{background:#1f6feb33;border-color:var(--accent);color:var(--accent);}
+  .seg{display:flex;gap:5px;}
+  .seg button{flex:1;font-size:12px;padding:5px 3px;}
+  input[type=range]{width:100%;accent-color:var(--accent);height:16px;}
+  .ctl{margin:8px 0;}
+  .ctl label{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin-bottom:2px;}
+  .ctl label b{color:var(--text);font-variant-numeric:tabular-nums;}
+  .chk{display:flex;align-items:center;gap:6px;font-size:12px;margin:4px 0;cursor:pointer;}
   .chk input{accent-color:var(--accent);}
-  .camrow button{flex:1;font-size:12px;padding:5px 4px;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;}
+  .hint{font-size:10.5px;color:var(--muted);line-height:1.45;margin-top:3px;}
+  .sep{height:1px;background:var(--border);margin:10px 0 8px;}
+  .sect{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:2px 0 4px;}
 
-  #strokeBadge{font-size:17px;font-weight:700;text-align:center;padding:8px;border-radius:8px;
-    margin-bottom:8px;background:#21262d;transition:background .3s,color .3s;}
-  #angleReadout{font-variant-numeric:tabular-nums;font-size:12px;color:var(--muted);text-align:center;margin-bottom:6px;}
+  #strokeBadge{font-size:16px;font-weight:700;text-align:center;padding:7px;border-radius:8px;
+    margin-bottom:6px;background:#21262d;transition:background .3s,color .3s;}
+  #angleReadout{font-variant-numeric:tabular-nums;font-size:11.5px;color:var(--muted);
+    text-align:center;margin-bottom:7px;}
+  #knockBanner{display:none;margin:6px 0;padding:6px 8px;border-radius:8px;font-size:11.5px;
+    background:#f8514922;border:1px solid var(--bad);color:#ffb3ad;line-height:1.4;}
+  #knockBanner.show{display:block;}
 
-  .gauge{margin:7px 0;}
-  .gauge .gl{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin-bottom:3px;}
-  .gauge .gl b{color:var(--text);font-variant-numeric:tabular-nums;}
-  .bar{height:7px;background:#21262d;border-radius:4px;overflow:hidden;}
-  .bar i{display:block;height:100%;width:0%;border-radius:4px;transition:width .08s linear;}
-  #pBar i{background:linear-gradient(90deg,#3b82f6,#f97316,#ef4444);}
-  #tBar i{background:linear-gradient(90deg,#38bdf8,#fbbf24,#ef4444);}
+  /* ── правая панель с вкладками ── */
+  #tabs{display:flex;gap:4px;padding:10px 10px 0;}
+  #tabs button{flex:1;border-radius:8px 8px 0 0;font-size:12px;}
+  #tabBody{flex:1;overflow-y:auto;padding:10px;scrollbar-width:thin;}
+  .tabpane{display:none;} .tabpane.on{display:block;}
 
-  /* ── правая панель: этапы ── */
-  #info{position:absolute;top:12px;right:12px;bottom:64px;width:340px;background:var(--panel);
-    border:1px solid var(--border);border-radius:12px;padding:14px;overflow-y:auto;
-    backdrop-filter:blur(6px);z-index:5;scrollbar-width:thin;}
-  #info h2{font-size:14px;color:var(--accent);margin-bottom:10px;}
-  .stage{border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px;
-    opacity:.55;transition:all .3s;}
-  .stage h3{font-size:13px;margin-bottom:5px;}
-  .stage p{font-size:12px;line-height:1.5;color:#c9d1d9;}
+  .stage{border:1px solid var(--border);border-radius:10px;padding:9px 11px;margin-bottom:7px;
+    opacity:.5;transition:all .3s;}
+  .stage h3{font-size:12.5px;margin-bottom:4px;}
+  .stage p{font-size:11.5px;line-height:1.5;color:#c9d1d9;}
+  .stage small{display:block;margin-top:4px;color:var(--muted);font-size:10.5px;line-height:1.45;}
   .stage.active{opacity:1;box-shadow:0 0 0 1.5px var(--sc,#58a6ff);background:rgba(88,166,255,.06);}
-  .stage small{display:block;margin-top:5px;color:var(--muted);font-size:11px;}
-  .legend{font-size:11.5px;color:var(--muted);border-top:1px solid var(--border);padding-top:8px;margin-top:4px;line-height:1.7;}
+  .note{font-size:11px;line-height:1.55;color:#adbac7;border-top:1px solid var(--border);
+    margin-top:8px;padding-top:8px;}
+  .note b{color:var(--text);}
   .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:-1px;}
-  #extra{font-size:11.5px;line-height:1.55;color:#adbac7;border-top:1px solid var(--border);margin-top:8px;padding-top:8px;}
-  #extra b{color:var(--text);}
+
+  #chartTabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;}
+  #chartTabs button{font-size:11px;padding:4px 7px;}
+  #chartHost{width:100%;height:min(56vh,470px);min-height:300px;}
+  #chartHint{font-size:11px;color:var(--muted);line-height:1.5;margin-top:8px;}
+
+  table.metrics{width:100%;border-collapse:collapse;font-size:11.5px;}
+  table.metrics td{padding:3px 0;border-bottom:1px solid #21262d;}
+  table.metrics td:last-child{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;}
+  table.metrics tr.head td{color:var(--accent);font-weight:600;border-bottom-color:var(--border);
+    padding-top:9px;text-transform:uppercase;font-size:10px;letter-spacing:.05em;}
 
   /* ── нижняя шкала цикла ── */
-  #timeline{position:absolute;left:12px;right:12px;bottom:12px;height:40px;background:var(--panel);
-    border:1px solid var(--border);border-radius:10px;padding:6px 12px;z-index:5;backdrop-filter:blur(6px);}
+  #timeline{position:absolute;left:10px;right:10px;bottom:10px;height:52px;padding:7px 12px;}
   #tlTrack{position:relative;height:12px;border-radius:6px;overflow:hidden;display:flex;cursor:pointer;}
   #tlTrack div{height:100%;}
-  #tlMarker{position:absolute;top:2px;width:2px;height:24px;background:#fff;border-radius:1px;
+  #tlMarker{position:absolute;top:1px;width:2px;height:24px;background:#fff;border-radius:1px;
     box-shadow:0 0 6px #fff;pointer-events:none;}
   #tlNames{display:flex;font-size:10px;color:var(--muted);margin-top:3px;}
   #tlNames span{flex:1;text-align:center;}
-  @media (max-width:900px){ #info{display:none;} }
+  #tlFacts{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);margin-top:3px;}
+  #tlFacts b{color:var(--text);font-variant-numeric:tabular-nums;}
+
+  #err{position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:20;display:none;
+    background:#f8514922;border:1px solid var(--bad);color:#ffb3ad;padding:8px 14px;border-radius:9px;
+    font-size:12px;max-width:60vw;}
+
+  @media (max-width:1100px){ #right{display:none;} }
+  @media (max-width:620px){ #left{width:calc(100vw - 20px);max-height:44vh;} }
 </style>
 <script type="importmap">
 { "imports": {
@@ -83,107 +109,207 @@
 <body>
 <div id="scene"></div>
 <div id="labels"></div>
+<div id="err"></div>
 
-<div id="controls">
+<!-- ══════════ левая панель: управление ══════════ -->
+<div class="panel" id="left">
   <h1>⚙️ Двигатель: 4 такта в 3D</h1>
   <div id="strokeBadge">—</div>
   <div id="angleReadout">угол коленвала: 0° / 720°</div>
+  <div id="knockBanner"></div>
 
-  <div class="row">
-    <button class="primary" id="playBtn">⏸ Пауза</button>
-  </div>
+  <div class="row"><button class="primary" id="playBtn">⏸ Пауза</button></div>
   <div class="row">
     <button id="stepB" title="назад 15°">−15°</button>
     <button id="stepF" title="вперёд 15°">+15°</button>
-    <button id="prevStroke" title="к началу такта">⏮ такт</button>
-    <button id="nextStroke" title="к след. такту">такт ⏭</button>
+    <button id="prevStroke">⏮ такт</button>
+    <button id="nextStroke">такт ⏭</button>
   </div>
 
-  <label class="small">Скорость вращения: <b id="rpmVal">60</b> об/мин</label>
-  <input type="range" id="rpm" min="5" max="600" value="60" step="5">
+  <div class="ctl">
+    <label>Угол коленвала (перемотка)<b id="scrubVal">0°</b></label>
+    <input type="range" id="scrub" min="0" max="720" value="0" step="1">
+  </div>
 
-  <label class="small">Угол коленвала (перемотка)</label>
-  <input type="range" id="scrub" min="0" max="720" value="0" step="1">
+  <div class="sep"></div>
+  <div class="sect">Режим двигателя</div>
+  <div class="seg" style="margin-bottom:6px">
+    <button data-fuel="petrol" class="on">Бензин</button>
+    <button data-fuel="diesel">Дизель</button>
+  </div>
+  <div class="seg">
+    <button data-cyl="1" class="on">1 цилиндр</button>
+    <button data-cyl="4">Рядная 4</button>
+  </div>
 
-  <div class="gauge"><div class="gl"><span>Давление в цилиндре</span><b id="pVal">0.10 МПа</b></div>
-    <div class="bar" id="pBar"><i></i></div></div>
-  <div class="gauge"><div class="gl"><span>Температура газа</span><b id="tVal">20 °C</b></div>
-    <div class="bar" id="tBar"><i></i></div></div>
+  <div class="ctl">
+    <label>Обороты<b><span id="rpmVal">2400</span> об/мин</b></label>
+    <input type="range" id="rpm" min="800" max="6000" value="2400" step="50">
+  </div>
+  <div class="ctl">
+    <label>Дроссель (нагрузка)<b id="thrVal">100 %</b></label>
+    <input type="range" id="throttle" min="5" max="100" value="100" step="1">
+  </div>
+  <div class="ctl">
+    <label>Степень сжатия ε<b id="epsVal">10.0</b></label>
+    <input type="range" id="eps" min="8" max="22" value="10" step="0.5">
+  </div>
+  <div class="ctl">
+    <label>Опережение зажигания<b><span id="advVal">18</span>° до ВМТ</b></label>
+    <input type="range" id="advance" min="0" max="45" value="18" step="1">
+  </div>
+  <div class="ctl">
+    <label>Октановое число топлива<b id="octVal">95</b></label>
+    <input type="range" id="octane" min="80" max="102" value="95" step="1">
+  </div>
+  <div class="ctl">
+    <label>Замедление показа<b id="slowVal">×100</b></label>
+    <input type="range" id="slowmo" min="0" max="5" value="3" step="1">
+    <div class="hint" id="slowHint"></div>
+  </div>
 
-  <div class="chk"><input type="checkbox" id="cutaway" checked><span>Разрез цилиндра (вид внутрь)</span></div>
-  <div class="chk"><input type="checkbox" id="showLabels" checked><span>Подписи деталей</span></div>
-  <div class="chk"><input type="checkbox" id="showGas" checked><span>Показывать газы в цилиндре</span></div>
+  <div class="sep"></div>
+  <div class="sect">Что показывать</div>
+  <div class="grid2">
+    <label class="chk"><input type="checkbox" id="cutaway" checked>Разрез</label>
+    <label class="chk"><input type="checkbox" id="showLabels" checked>Подписи</label>
+    <label class="chk"><input type="checkbox" id="fGas" checked>Газ</label>
+    <label class="chk"><input type="checkbox" id="fFuel" checked>Топливо</label>
+    <label class="chk"><input type="checkbox" id="fExhaust" checked>Выхлоп</label>
+    <label class="chk"><input type="checkbox" id="fOil" checked>Масло</label>
+    <label class="chk"><input type="checkbox" id="fCoolant" checked>Охлаждение</label>
+    <label class="chk"><input type="checkbox" id="sound">Звук</label>
+  </div>
 
-  <label class="small">Камера:</label>
-  <div class="row camrow">
+  <div class="sect" style="margin-top:9px">Камера</div>
+  <div class="seg">
     <button data-cam="side">Сбоку</button>
-    <button data-cam="iso">3/4</button>
+    <button data-cam="iso" class="on">3/4</button>
     <button data-cam="front">Спереди</button>
     <button data-cam="top">Сверху</button>
   </div>
-  <label class="small" style="opacity:.7">🖱 вращение — ЛКМ, зум — колесо, сдвиг — ПКМ</label>
+  <div class="hint">🖱 вращение — ЛКМ, зум — колесо, сдвиг — ПКМ · пробел — пауза, ←/→ — шаг</div>
 </div>
 
-<div id="info">
-  <h2>📖 Этапы рабочего цикла (720° коленвала)</h2>
-
-  <div class="stage" id="st0" style="--sc:var(--intake)">
-    <h3 style="color:var(--intake)">1. ВПУСК (0–180°)</h3>
-    <p>Поршень движется от верхней мёртвой точки (ВМТ) вниз. <b>Впускной клапан открыт</b> — он
-    открывается даже чуть раньше, за ~20° до ВМТ. Объём над поршнем растёт, давление падает ниже
-    атмосферного (до ~0,08 МПа), и в цилиндр засасывается свежий заряд. <b>Форсунка впрыскивает
-    мелко распылённый бензин</b> во впускной канал, где капли испаряются и смешиваются с воздухом —
-    получается топливовоздушная смесь (~14,7 кг воздуха на 1 кг бензина — стехиометрия).</p>
-    <small>Клапан закрывается с запаздыванием ~50° после НМТ: поток по инерции продолжает наполнять цилиндр.</small>
+<!-- ══════════ правая панель: теория, графики, показатели ══════════ -->
+<div class="panel" id="right">
+  <div id="tabs">
+    <button data-tab="stages" class="on">📖 Такты</button>
+    <button data-tab="charts">📈 Графики</button>
+    <button data-tab="metrics">📊 Показатели</button>
   </div>
+  <div id="tabBody">
 
-  <div class="stage" id="st1" style="--sc:var(--compress)">
-    <h3 style="color:var(--compress)">2. СЖАТИЕ (180–360°)</h3>
-    <p>Оба клапана закрыты. Поршень идёт вверх и сжимает смесь примерно в 10 раз (степень сжатия).
-    По законам термодинамики при сжатии газ нагревается: давление растёт до ~1,5–2 МПа, температура —
-    до 350–500 °C. За ~20° до ВМТ <b>свеча зажигания даёт искру</b> (опережение зажигания):
-    смесь начинает гореть заранее, чтобы максимум давления пришёлся точно на начало рабочего хода.</p>
-    <small>Чем выше степень сжатия — тем выше КПД, но при чрезмерном сжатии смесь взрывается сама (детонация).</small>
-  </div>
+    <!-- ── вкладка «Такты» ── -->
+    <div class="tabpane on" id="pane-stages">
+      <div class="stage" id="st0" style="--sc:var(--intake)">
+        <h3 style="color:var(--intake)">1. ВПУСК (0–180°)</h3>
+        <p>Поршень идёт от ВМТ вниз, <b>впускной клапан открыт</b> (открывается за ~20° до ВМТ).
+        Объём растёт, давление падает ниже атмосферного, и разрежение засасывает свежий заряд.
+        Форсунка впрыскивает распылённый бензин: смесь получается стехиометрической —
+        ~14,7 кг воздуха на 1 кг топлива. Сколько заряда реально влезло, показывает
+        <b>коэффициент наполнения</b> — он падает и на низких, и на очень высоких оборотах.</p>
+        <small>Клапан закрывается на ~50° позже НМТ: поток по инерции продолжает наполнять цилиндр.
+        Дроссель прикрывает впуск — падает давление в коллекторе, а с ним мощность.</small>
+      </div>
+      <div class="stage" id="st1" style="--sc:var(--compress)">
+        <h3 style="color:var(--compress)">2. СЖАТИЕ (180–360°)</h3>
+        <p>Оба клапана закрыты, поршень сжимает смесь в ε раз. Процесс близок к адиабатному:
+        <b>p·V<sup>γ</sup> ≈ const</b>, поэтому газ разогревается сам, без всякого пламени.
+        За несколько десятков градусов до ВМТ проскакивает искра — <b>опережение зажигания</b>
+        нужно потому, что сгорание занимает время, а максимум давления должен прийтись
+        на 10–15° после ВМТ, когда кривошип уже может превратить силу в момент.</p>
+        <small>Момент на этом такте отрицательный: двигатель тратит энергию маховика. Чем выше ε,
+        тем выше КПД — но тем ближе несгоревшая смесь к самовоспламенению и детонации.</small>
+      </div>
+      <div class="stage" id="st2" style="--sc:var(--power)">
+        <h3 style="color:var(--power)">3. РАБОЧИЙ ХОД (360–540°)</h3>
+        <p>Фронт пламени проходит камеру за тысячные доли секунды; доля сгоревшего топлива
+        описывается <b>функцией Вибе</b>. Давление и температура достигают максимума, газы
+        расширяются и толкают поршень вниз — единственный такт, где совершается полезная работа.
+        Через шатун сила даёт момент: <b>M = F·r·(sin θ + λ·sin 2θ / 2)</b>, где λ = r/L.</p>
+        <small>Площадь петли на диаграмме p–V — это и есть работа за цикл. Часть тепла уходит
+        в стенки и с выхлопом, поэтому эффективный КПД заметно ниже идеального.</small>
+      </div>
+      <div class="stage" id="st3" style="--sc:var(--exhaust)">
+        <h3 style="color:#9ca3af">4. ВЫПУСК (540–720°)</h3>
+        <p>Выпускной клапан открывается за ~50° до НМТ: остаточное давление само выбрасывает
+        первую порцию газов (свободный выпуск). Затем поршень выталкивает остальное.
+        У ВМТ есть <b>перекрытие клапанов</b> — оба приоткрыты, уходящий поток помогает
+        затянуть свежую смесь и продуть камеру от остаточных газов.</p>
+        <small>За полный цикл коленвал делает 2 оборота, а распредвалы — 1: смотри, как цепь
+        крутит их вдвое медленнее.</small>
+      </div>
 
-  <div class="stage" id="st2" style="--sc:var(--power)">
-    <h3 style="color:var(--power)">3. РАБОЧИЙ ХОД (360–540°)</h3>
-    <p>Фронт пламени пробегает камеру сгорания за тысячные доли секунды. Температура газов
-    подскакивает до ~2200–2500 °C, давление — до 4–6 МПа. Раскалённые газы, расширяясь,
-    <b>с силой толкают поршень вниз — это единственный такт, где двигатель совершает полезную
-    работу</b>. Через шатун сила передаётся на кривошип коленвала и превращается во вращение.
-    Маховик запасает энергию, чтобы «протащить» вал через остальные три подготовительных такта.</p>
-    <small>Именно поэтому одноцилиндровый мотор вибрирует, а 4-цилиндровый работает ровно: рабочие ходы чередуются.</small>
-  </div>
+      <div class="note">
+        <b>Цвета газа:</b>
+        <span class="dot" style="background:#4ea0ff"></span>смесь
+        <span class="dot" style="background:#b06bff"></span>сжатие
+        <span class="dot" style="background:#ff8a2a"></span>горение
+        <span class="dot" style="background:#9aa2ad"></span>выхлоп<br>
+        <b>Жидкости:</b> жёлтые капли — впрыск топлива, янтарные частицы — моторное масло
+        (насос → шейки коленвала → стенки цилиндра → поддон), сине-красный поток — антифриз
+        в рубашке охлаждения. В полезную работу уходит лишь около трети энергии топлива —
+        смотри вкладку «Показатели».
+      </div>
+      <div class="note">
+        <b>Детонация.</b> Если поднять степень сжатия или сделать зажигание слишком ранним,
+        несгоревшая часть смеси успевает самовоспламениться от сжатия — по критерию
+        Ливенгуда–Ву. Появится вспышка и предупреждение: это тот самый «стук пальцев»,
+        который разрушает поршни. Помогает более высокооктановое топливо или позднее зажигание.
+      </div>
+    </div>
 
-  <div class="stage" id="st3" style="--sc:var(--exhaust)">
-    <h3 style="color:#9ca3af">4. ВЫПУСК (540–720°)</h3>
-    <p><b>Выпускной клапан открывается за ~50° до НМТ</b> — остаточное давление (~0,4 МПа) само
-    выбрасывает первую порцию газов. Затем поршень идёт вверх и выталкивает отработавшие газы
-    (700–900 °C) в выпускной коллектор. Возле ВМТ наступает <b>перекрытие клапанов</b>: выпускной ещё
-    не закрылся, а впускной уже открыт — поток выходящих газов помогает «продуть» цилиндр и затянуть
-    свежую смесь. Далее цикл повторяется.</p>
-    <small>За 4 такта коленвал делает ровно 2 оборота, а распредвал (управляющий клапанами) — 1 оборот.</small>
-  </div>
+    <!-- ── вкладка «Графики» ── -->
+    <div class="tabpane" id="pane-charts">
+      <div id="chartHost"></div>
+      <div id="chartHint"></div>
+    </div>
 
-  <div class="legend">
-    <b style="color:var(--text)">Что показывают цвета газа:</b><br>
-    <span class="dot" style="background:#4ea0ff"></span>голубой — топливовоздушная смесь&nbsp;
-    <span class="dot" style="background:#b06bff"></span>фиолетовый — сжатая смесь<br>
-    <span class="dot" style="background:#ff8a2a"></span>оранжевый — горящие газы&nbsp;
-    <span class="dot" style="background:#9aa2ad"></span>серый — выхлоп<br>
-    <span class="dot" style="background:#ffd970"></span>жёлтые капли — впрыск топлива форсункой
-  </div>
+    <!-- ── вкладка «Показатели» ── -->
+    <div class="tabpane" id="pane-metrics">
+      <table class="metrics">
+        <tr class="head"><td colspan="2">Мощность и момент</td></tr>
+        <tr><td>Эффективная мощность</td><td id="mPower">—</td></tr>
+        <tr><td>Индикаторная мощность</td><td id="mPowerInd">—</td></tr>
+        <tr><td>Крутящий момент</td><td id="mTorque">—</td></tr>
+        <tr><td>Рабочий объём</td><td id="mDispl">—</td></tr>
 
-  <div id="extra">
-    <b>А какие жидкости ещё «текут» в двигателе?</b><br>
-    • <b>Бензин</b> — подаётся насосом к форсунке под давлением ~0,4 МПа (в моторах с прямым впрыском — до 20 МПа) и распыляется в туман.<br>
-    • <b>Моторное масло</b> — разбрызгивается и подаётся под давлением на стенки цилиндра, вкладыши коленвала и поршневой палец, снижая трение; поршневые кольца снимают его излишки со стенок.<br>
-    • <b>Охлаждающая жидкость (антифриз)</b> — циркулирует в «рубашке» вокруг цилиндра и отводит тепло в радиатор, иначе мотор перегреется: в работу превращается лишь ~30 % энергии топлива, остальное — тепло.
+        <tr class="head"><td colspan="2">В цилиндре</td></tr>
+        <tr><td>Максимальное давление</td><td id="mPmax">—</td></tr>
+        <tr><td>Максимальная температура</td><td id="mTmax">—</td></tr>
+        <tr><td>Среднее индикаторное p<sub>i</sub></td><td id="mImep">—</td></tr>
+        <tr><td>Работа за цикл</td><td id="mWork">—</td></tr>
+        <tr><td>Коэффициент наполнения</td><td id="mVolEff">—</td></tr>
+
+        <tr class="head"><td colspan="2">Эффективность</td></tr>
+        <tr><td>КПД индикаторный</td><td id="mEffInd">—</td></tr>
+        <tr><td>КПД эффективный</td><td id="mEffBrake">—</td></tr>
+        <tr><td>КПД идеального цикла Отто</td><td id="mEffOtto">—</td></tr>
+        <tr><td>Удельный расход топлива</td><td id="mBsfc">—</td></tr>
+
+        <tr class="head"><td colspan="2">Механика</td></tr>
+        <tr><td>Средняя скорость поршня</td><td id="mPistonSpeed">—</td></tr>
+        <tr><td>Неравномерность хода δ</td><td id="mFluct">—</td></tr>
+        <tr><td>Мгновенные обороты</td><td id="mRpmNow">—</td></tr>
+        <tr><td>Детонация</td><td id="mKnock">—</td></tr>
+      </table>
+      <div class="row" style="margin-top:10px">
+        <button id="btnCSV" style="flex:1">⤓ Скачать данные цикла (CSV)</button>
+      </div>
+      <div class="note" style="margin-top:6px">
+        Модель однозонная: газ считается однородным, теплоотдача в стенки — по упрощённой
+        зависимости, трение — по эмпирической формуле FMEP. Цифры соответствуют порядку величин
+        реального двигателя 2,0 л и хорошо показывают тенденции, но это учебная модель,
+        а не расчёт для проектирования.
+      </div>
+    </div>
+
   </div>
 </div>
 
-<div id="timeline">
+<!-- ══════════ нижняя шкала цикла ══════════ -->
+<div class="panel" id="timeline">
   <div id="tlTrack">
     <div style="flex:1;background:var(--intake)"></div>
     <div style="flex:1;background:var(--compress)"></div>
@@ -192,405 +318,15 @@
     <div id="tlMarker"></div>
   </div>
   <div id="tlNames"><span>Впуск</span><span>Сжатие</span><span>Рабочий ход</span><span>Выпуск</span></div>
+  <div id="tlFacts">
+    <span>давление: <b id="fP">—</b></span>
+    <span>температура: <b id="fT">—</b></span>
+    <span>сгорело: <b id="fX">—</b></span>
+    <span>момент: <b id="fM">—</b></span>
+    <span>обороты: <b id="fRpm">—</b></span>
+  </div>
 </div>
 
-<script type="module">
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
-
-/* ═══════════ геометрия механизма ═══════════ */
-const R_BORE = 4;          // радиус цилиндра
-const CRANK_R = 4;         // радиус кривошипа (ход поршня = 8)
-const ROD_L  = 12;         // длина шатуна
-const CLEAR_H = 8/9;       // высота камеры сгорания (степень сжатия 10)
-const PISTON_TOP_OFF = 3;  // от пальца до днища поршня
-const Y_TDC = CRANK_R + ROD_L;              // палец в ВМТ
-const DECK_Y = Y_TDC + PISTON_TOP_OFF + CLEAR_H; // плоскость головки
-
-const pistonY = th => CRANK_R*Math.cos(th) + Math.sqrt(ROD_L**2 - (CRANK_R*Math.sin(th))**2);
-
-/* фазы газораспределения (градусы цикла 0..720, 0° = ВМТ начала впуска) */
-const IN_OPEN = 700, IN_CLOSE = 230;   // впускной: 20° до ВМТ … 50° после НМТ
-const EX_OPEN = 490, EX_CLOSE = 20;    // выпускной: 50° до НМТ … 20° после ВМТ
-const SPARK_DEG = 340;                 // искра: 20° до ВМТ сжатия
-
-function valveLift(deg, open, close){
-  const span = (close - open + 720) % 720;
-  const t = (deg - open + 720) % 720;
-  if (t > span) return 0;
-  return Math.sin(Math.PI * t / span);   // 0..1
-}
-function burn(deg){ // интенсивность горения 0..1
-  if (deg < SPARK_DEG || deg > 460) return 0;
-  const t = (deg - SPARK_DEG) / 120;
-  return Math.sin(Math.min(t,1) * Math.PI) ** 1.5;
-}
-
-/* ═══════════ сцена ═══════════ */
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0d1117);
-scene.fog = new THREE.Fog(0x0d1117, 70, 160);
-
-const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 500);
-const renderer = new THREE.WebGLRenderer({antialias:true});
-renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.localClippingEnabled = true;
-document.getElementById('scene').appendChild(renderer.domElement);
-
-const labelRenderer = new CSS2DRenderer();
-labelRenderer.setSize(innerWidth, innerHeight);
-Object.assign(labelRenderer.domElement.style,{position:'absolute',top:'0',pointerEvents:'none'});
-document.getElementById('labels').appendChild(labelRenderer.domElement);
-
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 11, 0);
-controls.enableDamping = true;
-
-const CAMS = {
-  side:[40, 16, 2], iso:[28, 24, 32], front:[2, 14, 44], top:[0.5, 52, 7]
-};
-function setCam(name){ camera.position.set(...CAMS[name]); controls.target.set(0,12,0); }
-setCam(CAMS[new URLSearchParams(location.search).get('cam')] ? new URLSearchParams(location.search).get('cam') : 'iso');
-
-scene.add(new THREE.HemisphereLight(0xbfd4ff, 0x223344, 0.9));
-const dir = new THREE.DirectionalLight(0xffffff, 1.6); dir.position.set(18, 30, 22); scene.add(dir);
-const dir2 = new THREE.DirectionalLight(0x88aaff, 0.5); dir2.position.set(-20, 10, -15); scene.add(dir2);
-
-/* пол-сетка */
-const grid = new THREE.GridHelper(120, 40, 0x2a3038, 0x1c2128);
-grid.position.y = -8; scene.add(grid);
-
-/* плоскость разреза (убирает переднюю половину стенок) */
-const clipPlane = new THREE.Plane(new THREE.Vector3(0,0,-1), 0.001);
-
-const matMetal   = new THREE.MeshStandardMaterial({color:0xb9c2cc, metalness:.85, roughness:.35});
-const matSteel   = new THREE.MeshStandardMaterial({color:0x8a95a1, metalness:.9,  roughness:.3});
-const matDark    = new THREE.MeshStandardMaterial({color:0x3a4048, metalness:.6,  roughness:.5});
-const matWall    = new THREE.MeshPhysicalMaterial({color:0xaab6c2, metalness:.2, roughness:.15,
-                    transparent:true, opacity:.22, side:THREE.DoubleSide, clippingPlanes:[clipPlane], depthWrite:false});
-const matHead    = new THREE.MeshStandardMaterial({color:0x6e7a87, metalness:.7, roughness:.4,
-                    transparent:true, opacity:.35, clippingPlanes:[clipPlane]});
-
-/* ── цилиндр и головка ── */
-const wall = new THREE.Mesh(
-  new THREE.CylinderGeometry(R_BORE+0.25, R_BORE+0.25, DECK_Y-6, 48, 1, true), matWall);
-wall.position.y = (DECK_Y+6)/2; scene.add(wall);
-
-const head = new THREE.Mesh(new THREE.BoxGeometry(13, 3.2, 9), matHead);
-head.position.y = DECK_Y + 1.6; scene.add(head);
-
-/* ── поршень + кольца + палец ── */
-const piston = new THREE.Group();
-const pBody = new THREE.Mesh(new THREE.CylinderGeometry(R_BORE-0.12, R_BORE-0.12, 5, 40), matMetal);
-pBody.position.y = 0.5; piston.add(pBody);
-for (let i=0;i<2;i++){
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(R_BORE-0.1, 0.13, 8, 40), matDark);
-  ring.rotation.x = Math.PI/2; ring.position.y = 2.35 - i*0.55; piston.add(ring);
-}
-const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 3.2, 20), matSteel);
-pin.rotation.x = Math.PI/2; piston.add(pin);
-scene.add(piston);
-
-/* ── шатун (поворот вокруг пальца) ── */
-const rod = new THREE.Group();
-const rodBody = new THREE.Mesh(new THREE.BoxGeometry(1.5, ROD_L, 0.9), matSteel);
-rodBody.position.y = -ROD_L/2; rod.add(rodBody);
-const bigEnd = new THREE.Mesh(new THREE.TorusGeometry(1.35, 0.5, 10, 24), matSteel);
-bigEnd.position.y = -ROD_L; rod.add(bigEnd);
-const smallEnd = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.4, 10, 24), matSteel);
-rod.add(smallEnd);
-scene.add(rod);
-
-/* ── коленвал + маховик ── */
-const crank = new THREE.Group();
-const shaftF = new THREE.Mesh(new THREE.CylinderGeometry(1.1,1.1,3,24), matSteel);
-shaftF.rotation.x = Math.PI/2; shaftF.position.z = -2.8; crank.add(shaftF);
-const shaftB = new THREE.Mesh(new THREE.CylinderGeometry(1.1,1.1,3.5,24), matSteel);
-shaftB.rotation.x = Math.PI/2; shaftB.position.z = 3.0; crank.add(shaftB);
-for (const s of [-1.65, 1.65]){
-  const web = new THREE.Mesh(new THREE.BoxGeometry(3, CRANK_R+2.6, 1), matDark);
-  web.position.set(0, (CRANK_R-1.4)/2, s); crank.add(web);
-  const cw = new THREE.Mesh(new THREE.CylinderGeometry(2.6,2.6,1,24,1,false,Math.PI/2,Math.PI), matDark);
-  cw.rotation.x = Math.PI/2; cw.rotation.y = Math.PI; cw.position.set(0,-0.6,s); crank.add(cw);
-}
-const crankPin = new THREE.Mesh(new THREE.CylinderGeometry(0.85,0.85,2.4,20), matSteel);
-crankPin.rotation.x = Math.PI/2; crankPin.position.y = CRANK_R; crank.add(crankPin);
-const flywheel = new THREE.Mesh(new THREE.CylinderGeometry(6,6,1.1,48), matDark);
-flywheel.rotation.x = Math.PI/2; flywheel.position.z = 5.3; crank.add(flywheel);
-const fwMark = new THREE.Mesh(new THREE.BoxGeometry(0.6,1.6,1.2), new THREE.MeshStandardMaterial({color:0xffcc44}));
-fwMark.position.set(0, 4.9, 5.3); crank.add(fwMark);
-scene.add(crank);
-
-/* ── клапаны, пружины, порты ── */
-function makeValve(x, color){
-  const g = new THREE.Group();
-  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.26,0.26,6,14), matSteel);
-  stem.position.y = 3; g.add(stem);
-  const headV = new THREE.Mesh(new THREE.CylinderGeometry(1.25,0.9,0.4,24),
-    new THREE.MeshStandardMaterial({color, metalness:.8, roughness:.35}));
-  headV.position.y = 0.2; g.add(headV);
-  // пружина-спираль
-  const pts=[]; for(let i=0;i<=60;i++){const a=i/60*Math.PI*10;
-    pts.push(new THREE.Vector3(Math.cos(a)*0.8, 2.2+i/60*2.6, Math.sin(a)*0.8));}
-  const spring = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts),120,0.09,6),matSteel);
-  g.add(spring);
-  g.position.set(x, DECK_Y, 0);
-  scene.add(g); return g;
-}
-const intakeValve  = makeValve(-1.9, 0xa8c6ff);
-const exhaustValve = makeValve( 1.9, 0xd98d6a);
-
-function makePort(x1,y1,x2,y2,color,r=0.9){
-  const dirv = new THREE.Vector3(x2-x1, y2-y1, 0);
-  const len = dirv.length();
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(r,r,len,16,1,true),
-    new THREE.MeshStandardMaterial({color, metalness:.5, roughness:.5, transparent:true, opacity:.5, side:THREE.DoubleSide}));
-  m.position.set((x1+x2)/2,(y1+y2)/2,0);
-  m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dirv.normalize());
-  scene.add(m); return m;
-}
-makePort(-1.9, DECK_Y+1.2, -7.5, DECK_Y+4.4, 0x5b7ea8);   // впускной канал
-makePort( 1.9, DECK_Y+1.2,  7.5, DECK_Y+4.4, 0x7a6a5f);   // выпускной канал
-
-/* свеча зажигания */
-const plug = new THREE.Group();
-const plugBody = new THREE.Mesh(new THREE.CylinderGeometry(0.45,0.45,2.6,12),
-  new THREE.MeshStandardMaterial({color:0xf0ead6, roughness:.4}));
-plugBody.position.y = 1.6; plug.add(plugBody);
-const plugTip = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,1.1,8), matSteel);
-plugTip.position.y = -0.2; plug.add(plugTip);
-plug.position.set(0, DECK_Y+0.4, 0); scene.add(plug);
-
-/* форсунка на впускном канале */
-const injector = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.8, 12),
-  new THREE.MeshStandardMaterial({color:0x4466aa, metalness:.6, roughness:.4}));
-injector.position.set(-6.2, DECK_Y+5.6, 0);
-injector.rotation.z = 2.62; scene.add(injector);
-
-/* искра */
-const sparkLight = new THREE.PointLight(0xffe9b0, 0, 20);
-sparkLight.position.set(0, DECK_Y-0.5, 0); scene.add(sparkLight);
-const sparkBall = new THREE.Mesh(new THREE.SphereGeometry(0.28,10,10),
-  new THREE.MeshBasicMaterial({color:0xfff2c0, transparent:true, opacity:0}));
-sparkBall.position.copy(sparkLight.position); scene.add(sparkBall);
-
-/* свет горения */
-const fireLight = new THREE.PointLight(0xff7722, 0, 30);
-fireLight.position.set(0, DECK_Y-1.5, 0); scene.add(fireLight);
-
-/* ── газ в цилиндре ── */
-const gasMat = new THREE.MeshBasicMaterial({transparent:true, opacity:0, depthWrite:false});
-const gas = new THREE.Mesh(new THREE.CylinderGeometry(R_BORE-0.2, R_BORE-0.2, 1, 32), gasMat);
-scene.add(gas);
-const C_MIX=new THREE.Color(0x4ea0ff), C_COMP=new THREE.Color(0xb06bff),
-      C_FIRE=new THREE.Color(0xff8a2a), C_EXH=new THREE.Color(0x9aa2ad);
-
-/* ── частицы: топливо и выхлоп ── */
-function makeParticles(n, color, size){
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n*3), 3));
-  const mat = new THREE.PointsMaterial({color, size, transparent:true, opacity:.95, depthWrite:false});
-  const pts = new THREE.Points(geo, mat);
-  pts.frustumCulled = false;
-  scene.add(pts);
-  return {pts, geo, data:Array.from({length:n},()=>({x:0,y:-999,z:0,vx:0,vy:0,vz:0,life:0})), n, next:0};
-}
-const fuel = makeParticles(260, 0xffd970, 0.28);
-const smoke = makeParticles(260, 0x99a0aa, 0.5);
-
-function spawn(sys, count, ox, oy, oz, vx, vy, vz, spread){
-  for(let i=0;i<count;i++){
-    const p = sys.data[sys.next]; sys.next = (sys.next+1)%sys.n;
-    p.x=ox+(Math.random()-0.5)*0.4; p.y=oy+(Math.random()-0.5)*0.4; p.z=oz+(Math.random()-0.5)*0.4;
-    p.vx=vx+(Math.random()-0.5)*spread; p.vy=vy+(Math.random()-0.5)*spread; p.vz=vz+(Math.random()-0.5)*spread;
-    p.life=1;
-  }
-}
-function updateParticles(sys, dt, fade){
-  const arr = sys.geo.attributes.position.array;
-  sys.data.forEach((p,i)=>{
-    if(p.life>0){ p.life-=dt*fade; p.x+=p.vx*dt; p.y+=p.vy*dt; p.z+=p.vz*dt; }
-    arr[i*3]=p.x; arr[i*3+1]=p.life>0?p.y:-999; arr[i*3+2]=p.z;
-  });
-  sys.geo.attributes.position.needsUpdate = true;
-}
-
-/* ── подписи ── */
-const labels = [];
-function addLabel(text, x, y, z, target){
-  const div = document.createElement('div'); div.className='lbl'; div.textContent=text;
-  const lo = new CSS2DObject(div); lo.position.set(x,y,z);
-  (target||scene).add(lo); labels.push(lo);
-}
-addLabel('Поршень', 5.2, Y_TDC-3, 0);
-addLabel('Шатун', 3.6, 7, 0);
-addLabel('Коленчатый вал', -6.5, -1.5, 0);
-addLabel('Маховик', 0, -7, 6);
-addLabel('Цилиндр', -6.3, 14, 0);
-addLabel('Впускной клапан', -5.2, DECK_Y+1.1, 0);
-addLabel('Выпускной клапан', 5.4, DECK_Y+1.1, 0);
-addLabel('Свеча зажигания', 0.2, DECK_Y+4.2, 0);
-addLabel('Форсунка (впрыск бензина)', -8.4, DECK_Y+7.4, 0);
-addLabel('Камера сгорания', 4.9, DECK_Y-0.4, 0);
-
-/* ═══════════ термодинамика (приближённо, для индикаторов) ═══════════ */
-const AREA = Math.PI*R_BORE*R_BORE;
-const vol = deg => AREA*CLEAR_H + AREA*((CRANK_R+ROD_L) - pistonY(deg*Math.PI/180));
-function thermo(deg){
-  let P, T;
-  const V = vol(deg);
-  if (deg < 180){ P = 0.085; T = 40 + 30*(deg/180); }
-  else if (deg < SPARK_DEG){
-    const k = vol(180)/V; P = 0.09*Math.pow(k,1.32); T = 60 + (330+273)*(Math.pow(k,0.32)-1);
-  } else if (deg < 540){
-    const b = burn(deg);
-    const kc = vol(180)/vol(Math.min(deg,375));
-    let Pc = 0.09*Math.pow(kc,1.32)*(1+3.6*b);
-    if (deg > 375){ Pc = 5.6*Math.pow(vol(375)/V,1.27)* (0.55+0.45*b); }
-    P = Math.max(Pc, 0.3); T = 300 + 2100*Math.max(b, deg>375? Math.max(0,(540-deg)/165*0.45):0);
-  } else { P = 0.13; T = 800 - 350*((deg-540)/180); }
-  return {P: Math.min(P, 6.2), T: Math.max(T, 20)};
-}
-
-/* ═══════════ UI ═══════════ */
-const $ = id => document.getElementById(id);
-/* стартовое состояние можно задать в ссылке: ?deg=385&rpm=120&pause=1 */
-const qs = new URLSearchParams(location.search);
-let theta = Math.min(719, Math.max(0, +qs.get('deg') || 0));   // угол цикла 0..720
-let playing = !qs.has('pause');
-let rpm = Math.min(600, Math.max(5, +qs.get('rpm') || 60));
-
-const STROKES = [
-  {name:'ВПУСК',       color:'#3b82f6'},
-  {name:'СЖАТИЕ',      color:'#a855f7'},
-  {name:'РАБОЧИЙ ХОД', color:'#f97316'},
-  {name:'ВЫПУСК',      color:'#9ca3af'},
-];
-
-$('playBtn').textContent = playing ? '⏸ Пауза' : '▶ Пуск';
-$('rpm').value = rpm; $('rpmVal').textContent = rpm;
-$('playBtn').onclick = () => { playing=!playing; $('playBtn').textContent = playing?'⏸ Пауза':'▶ Пуск'; };
-$('rpm').oninput = e => { rpm = +e.target.value; $('rpmVal').textContent = rpm; };
-$('scrub').oninput = e => { theta = +e.target.value; };
-$('stepF').onclick = () => { theta = (theta+15)%720; };
-$('stepB').onclick = () => { theta = (theta-15+720)%720; };
-$('nextStroke').onclick = () => { theta = (Math.floor(theta/180)+1)%4*180; };
-$('prevStroke').onclick = () => { theta = (Math.floor(theta/180)+3)%4*180; };
-$('cutaway').onchange = e => {
-  matWall.clippingPlanes = e.target.checked ? [clipPlane] : null;
-  matHead.clippingPlanes = e.target.checked ? [clipPlane] : null;
-  matWall.needsUpdate = matHead.needsUpdate = true;
-};
-$('showLabels').onchange = e => { labelRenderer.domElement.style.display = e.target.checked?'':'none'; };
-$('showGas').onchange = e => { gas.visible = e.target.checked; };
-document.querySelectorAll('[data-cam]').forEach(b => b.onclick = () => setCam(b.dataset.cam));
-/* ?ui=0 — спрятать панели (для записи превью и встраивания) */
-if (qs.get('ui') === '0')
-  ['controls','info','timeline'].forEach(id => $(id).style.display = 'none');
-
-addEventListener('keydown', ev => {
-  if (ev.code === 'Space'){ ev.preventDefault(); $('playBtn').click(); }
-  if (ev.code === 'ArrowRight') theta = (theta + (ev.shiftKey?45:5)) % 720;
-  if (ev.code === 'ArrowLeft')  theta = (theta - (ev.shiftKey?45:5) + 720) % 720;
-});
-$('tlTrack').addEventListener('pointerdown', ev => {
-  const r = $('tlTrack').getBoundingClientRect();
-  theta = Math.max(0, Math.min(719, (ev.clientX-r.left)/r.width*720));
-});
-
-/* ═══════════ главный цикл ═══════════ */
-const clock = new THREE.Clock();
-const STILL = qs.get('still') === '1';   // отрисовать один кадр и остановиться
-function animate(){
-  if (!STILL) requestAnimationFrame(animate);
-  const dt = Math.min(clock.getDelta(), 0.05);
-  if (playing) theta = (theta + rpm*6*dt) % 720;   // rpm об/мин → 6·rpm °/с
-
-  const rad = theta*Math.PI/180;
-  const Y = pistonY(rad);
-
-  /* механика */
-  piston.position.y = Y;
-  rod.position.y = Y;
-  rod.rotation.z = Math.asin(CRANK_R*Math.sin(rad)/ROD_L);
-  crank.rotation.z = -rad;
-
-  /* клапаны */
-  const li = valveLift(theta, IN_OPEN, IN_CLOSE);
-  const le = valveLift(theta, EX_OPEN, EX_CLOSE);
-  intakeValve.position.y  = DECK_Y - li*1.4;
-  exhaustValve.position.y = DECK_Y - le*1.4;
-
-  /* газ в камере */
-  const crown = Y + PISTON_TOP_OFF;
-  const h = Math.max(DECK_Y - crown, 0.05);
-  gas.scale.y = h; gas.position.y = crown + h/2;
-
-  const stroke = Math.floor(theta/180);
-  const b = burn(theta);
-  if (b > 0.02){
-    gasMat.color.copy(C_COMP).lerp(C_FIRE, Math.min(b*1.6,1));
-    gasMat.opacity = 0.35 + 0.4*b;
-  } else if (stroke === 0){
-    gasMat.color.copy(C_MIX); gasMat.opacity = 0.10 + 0.18*(theta/180);
-  } else if (stroke === 1){
-    gasMat.color.copy(C_MIX).lerp(C_COMP,(theta-180)/180);
-    gasMat.opacity = 0.28 + 0.25*((theta-180)/180);
-  } else if (stroke === 2){
-    gasMat.color.copy(C_FIRE).lerp(C_EXH,(theta-360)/180);
-    gasMat.opacity = 0.5 - 0.2*((theta-360)/180);
-  } else {
-    gasMat.color.copy(C_EXH); gasMat.opacity = 0.30*(1-(theta-540)/180);
-  }
-  fireLight.intensity = 60*b;
-
-  /* искра */
-  const sp = Math.abs(theta - SPARK_DEG);
-  sparkLight.intensity = sp < 8 ? 50 : 0;
-  sparkBall.material.opacity = sp < 8 ? 1 : 0;
-
-  /* впрыск топлива: во время впуска при открытом клапане */
-  if (stroke === 0 && li > 0.05 && playing)
-    spawn(fuel, 3, -6.4, DECK_Y+4.8, 0, 7.2, -4.4, 0, 2.2);
-  /* выхлоп */
-  if (le > 0.1 && playing)
-    spawn(smoke, 2, 4.5, DECK_Y+2.8, 0, 6.5, 3.5, 0, 2.5);
-  updateParticles(fuel, dt, 2.2);
-  updateParticles(smoke, dt, 1.4);
-
-  /* UI-обновления */
-  const st = STROKES[stroke];
-  const badge = $('strokeBadge');
-  badge.textContent = `Такт ${stroke+1}: ${st.name}`;
-  badge.style.background = st.color + '22'; badge.style.color = st.color;
-  $('angleReadout').textContent = `угол коленвала: ${theta.toFixed(0)}° / 720°  •  оборот ${theta<360?1:2}`;
-  if (playing) $('scrub').value = theta;
-  $('tlMarker').style.left = `calc(${(theta/720*100).toFixed(2)}% - 1px)`;
-  for (let i=0;i<4;i++) $('st'+i).classList.toggle('active', i===stroke);
-  if (stroke !== animate.lastStroke){
-    animate.lastStroke = stroke;
-    $('st'+stroke).scrollIntoView({behavior:'smooth', block:'nearest'});
-  }
-
-  const {P, T} = thermo(theta);
-  $('pVal').textContent = P.toFixed(2)+' МПа';
-  $('tVal').textContent = Math.round(T)+' °C';
-  document.querySelector('#pBar i').style.width = Math.min(P/6*100,100)+'%';
-  document.querySelector('#tBar i').style.width = Math.min(T/2500*100,100)+'%';
-
-  controls.update();
-  renderer.render(scene, camera);
-  labelRenderer.render(scene, camera);
-}
-animate();
-
-addEventListener('resize', () => {
-  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-  labelRenderer.setSize(innerWidth, innerHeight);
-});
-</script>
+<script type="module" src="./src/main.js"></script>
 </body>
 </html>

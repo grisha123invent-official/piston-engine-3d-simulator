@@ -6,14 +6,14 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 
-import { L, layoutSpec } from './layout.js?v=6';
-import { getLang, setLang, onLangChange, t, applyDom } from './i18n.js?v=6';
+import { L, layoutSpec } from './layout.js?v=7';
+import { getLang, setLang, onLangChange, t, applyDom } from './i18n.js?v=7';
 import { STAGES_4, STAGES_2, NOTES, CHART_HINTS, STROKE_NAMES_4, STROKE_NAMES_2,
-         TIMELINE_4, TIMELINE_2, UI } from './content.js?v=6';
-import { createEngine } from './physics.js?v=6';
-import { buildMechanism } from './engine3d.js?v=6';
-import { buildFluids } from './fluids3d.js?v=6';
-import { createCharts } from './charts.js?v=6';
+         TIMELINE_4, TIMELINE_2, UI } from './content.js?v=7';
+import { createEngine } from './physics.js?v=7';
+import { buildMechanism } from './engine3d.js?v=7';
+import { buildFluids } from './fluids3d.js?v=7';
+import { createCharts } from './charts.js?v=7';
 
 const $ = id => document.getElementById(id);
 
@@ -132,7 +132,7 @@ let camName = qs.get('cam') || 'iso';
 function fitFactor(){
   const aspect = innerWidth / innerHeight;
   if (aspect >= 1.4) return 1;
-  return Math.min(1.6, 1 + (1.4 - aspect) * 0.62);
+  return Math.min(1.45, 1 + (1.4 - aspect) * 0.52);
 }
 function setCam(name){
   camName = name || camName;
@@ -142,7 +142,7 @@ function setCam(name){
   /* на вертикальном экране снизу панели — поднимаем точку взгляда,
      чтобы двигатель встал в верхнюю половину кадра */
   const baseY = state.layout === 'boxer4' ? 3 : 10;
-  controls.target.set(0, baseY + (k > 1.15 ? 7 : 0), 0);
+  controls.target.set(0, baseY + (k > 1.15 ? 2 : 0), 0);
 }
 setCam(qs.get('cam') || 'iso');
 
@@ -200,7 +200,7 @@ async function ensureSound(){
   if (sound || soundLoading) return sound;
   soundLoading = true;
   try {
-    const mod = await import('./sound.js?v=6');
+    const mod = await import('./sound.js?v=7');
     sound = mod.createEngineSound();
     sound.setVolume?.(state.volume);
     sound.setEnabled?.(true);
@@ -292,6 +292,9 @@ function drawDial(){
 }
 
 /* ═════════ цикл анимации ═════════ */
+/** Компактная плашка показывается только на узких экранах (порог как в стилях). */
+let hudVisible = innerWidth <= 1200;
+
 let lastTime = performance.now();
 const deltaTime = () => {
   const t = performance.now();
@@ -340,18 +343,33 @@ function animate(){
     ? t(UI.cycle360)
     : `${state.theta.toFixed(0)}° ${t(UI.cycleOf)} ${state.theta < 360 ? 1 : 2}`;
   if (state.playing){ $('scrub').value = state.theta; syncRange($('scrub')); $('scrubVal').textContent = state.theta.toFixed(0) + '°'; }
-  $('tlMarker').style.left = `calc(${(state.theta / C * 100).toFixed(2)}% - 1px)`;
+  const posPct = (state.theta / C * 100).toFixed(2);
+  $('tlMarker').style.left = `calc(${posPct}% - 1px)`;
 
   const c0 = frame.cyl[0];
-  $('fP').textContent = c0.p_bar.toFixed(1) + ' ' + t(UI.units.bar);
-  $('fT').textContent = Math.round(c0.T_K - 273) + ' °C';
+  const pTxt = c0.p_bar.toFixed(1) + ' ' + t(UI.units.bar);
+  const tTxt = Math.round(c0.T_K - 273) + ' °C';
+  const rpmTxt = String(Math.round(rpmNow));
+  $('fP').textContent = pTxt;
+  $('fT').textContent = tTxt;
   $('fX').textContent = Math.round(c0.xb * 100) + ' %';
   $('fM').textContent = frame.totalTorque_Nm.toFixed(0) + ' ' + t(UI.units.nm);
-  $('fRpm').textContent = Math.round(rpmNow);
+  $('fRpm').textContent = rpmTxt;
   $('fBoost').textContent = frame.boostNow_bar > 0.01
     ? '+' + frame.boostNow_bar.toFixed(2) + ' ' + t(UI.units.bar)
     : t(UI.none);
-  $('hRpm').textContent = Math.round(rpmNow);
+  $('hRpm').textContent = rpmTxt;
+
+  /* компактная плашка на узких экранах */
+  if (hudVisible){
+    $('hudMarker').style.left = `calc(${posPct}% - 1px)`;
+    $('hudStroke').textContent = t(st);
+    $('hudStroke').style.color = st.color;
+    $('hudAngle').textContent = state.theta.toFixed(0) + '°';
+    $('hudP').textContent = pTxt;
+    $('hudT').textContent = tTxt;
+    $('hudRpm').textContent = rpmTxt + ' ' + t(UI.units.rpm);
+  }
 
   if (idx !== lastStroke){
     lastStroke = idx;
@@ -627,9 +645,10 @@ function applyCycleUi(){
   const stages = state.twoStroke ? STAGES_2 : STAGES_4;
   const tl = state.twoStroke ? TIMELINE_2 : TIMELINE_4;
 
-  track.innerHTML = stages.map(s => `<div style="flex:1;background:${s.color}"></div>`).join('')
-    + '<div id="tlMarker"></div>';
+  const segments = stages.map(s => `<div style="flex:1;background:${s.color}"></div>`).join('');
+  track.innerHTML = segments + '<div id="tlMarker"></div>';
   names.innerHTML = tl.map(n => `<span>${t(n)}</span>`).join('');
+  $('hudBar').innerHTML = segments + '<div id="hudMarker"></div>';
   $('pane-stages').innerHTML = stages.map(stageCard).join('')
     + `<div class="note">${t(NOTES.colors)}</div><div class="note">${t(NOTES.knock)}</div>`;
 
@@ -743,6 +762,11 @@ function openSheet(which){
 }
 $('panelToggle').onclick = () => openSheet('right');
 $('menuToggle').onclick = () => openSheet('left');
+/* тап по компактной плашке открывает управление */
+$('hud').onclick = () => openSheet('left');
+$('hud').addEventListener('keydown', ev => {
+  if (ev.code === 'Enter' || ev.code === 'Space'){ ev.preventDefault(); openSheet('left'); }
+});
 /* тап по сцене закрывает открытую шторку */
 $('scene').addEventListener('pointerdown', () => {
   if (innerWidth > 1200) return;
@@ -796,13 +820,14 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
   labelRenderer.setSize(innerWidth, innerHeight);
   charts.resize?.();
+  hudVisible = innerWidth <= 1200;
   /* заметно изменились пропорции экрана — переставляем камеру под них */
   const f = fitFactor();
   if (Math.abs(f - lastFit) > 0.12){ lastFit = f; setCam(); }
 });
 
 if (qs.get('ui') === '0')
-  ['left', 'right', 'timeline', 'panelToggle', 'menuToggle']
+  ['left', 'right', 'hud', 'panelToggle', 'menuToggle']
     .forEach(id => $(id).style.display = 'none');
 
 /* ═════════ старт ═════════ */

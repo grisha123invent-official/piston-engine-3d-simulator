@@ -81,7 +81,8 @@ arrow keys step through the cycle (hold Shift for 45° steps).
 The whole screen belongs to the 3D model: panels are hidden, part labels are off and the
 camera pulls back to fit a portrait screen. Controls and theory slide up as sheets —
 the burger on the left, "Theory" on the right. Tapping the scene dismisses the sheet,
-and the cycle strip steps aside for it.
+Instead of the panels, a compact pill stays at the top: stroke, crank angle, the cycle strip
+and the three key readouts — pressure, temperature and engine speed. Tapping it opens the controls.
 
 ## 🔄 The four strokes
 

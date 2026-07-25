@@ -61,12 +61,12 @@
     backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
     border:.5px solid var(--stroke);border-radius:var(--r-lg);box-shadow:var(--shadow);}
 
-  #left{top:16px;left:16px;width:312px;max-height:calc(100vh - 128px);
+  #left{top:16px;left:16px;width:312px;max-height:calc(100vh - 32px);
     overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;
     scrollbar-color:rgba(255,255,255,.18) transparent;}
   #left::-webkit-scrollbar{width:6px;}
   #left::-webkit-scrollbar-thumb{background:rgba(255,255,255,.16);border-radius:3px;}
-  #right{top:16px;right:16px;width:412px;bottom:112px;display:flex;flex-direction:column;overflow:hidden;}
+  #right{top:16px;right:16px;width:412px;bottom:16px;display:flex;flex-direction:column;overflow:hidden;}
 
   /* ─────────────── шапка с указателем ─────────────── */
   #head{display:flex;gap:14px;align-items:center;padding:16px 16px 14px;position:relative;}
@@ -237,24 +237,43 @@
     padding:11px;border-radius:var(--r-md);font-weight:500;}
   #btnCSV svg{width:14px;height:14px;fill:currentColor;}
 
-  /* ─────────────── нижняя линейка ─────────────── */
-  #timeline{position:absolute;left:16px;right:16px;bottom:16px;padding:13px 18px 12px;}
+  /* ─────────────── шкала цикла и показания в левой панели ─────────────── */
+  #cycleStrip{margin-top:14px;}
   #tlTrack{position:relative;height:8px;border-radius:4px;overflow:hidden;display:flex;
     cursor:pointer;background:rgba(120,120,128,.24);}
   #tlTrack div{height:100%;opacity:.9;}
   #tlMarker{position:absolute;top:-3px;width:3px;height:14px;background:#fff;border-radius:2px;
     box-shadow:0 0 10px rgba(255,255,255,.8);pointer-events:none;}
-  #tlNames{display:flex;font-size:10.5px;color:var(--dimmer);margin-top:7px;
-    letter-spacing:.02em;}
+  #tlNames{display:flex;font-size:9.5px;color:var(--dimmer);margin-top:7px;letter-spacing:.01em;}
   #tlNames span{flex:1;text-align:center;}
-  #tlFacts{display:flex;gap:26px;margin-top:11px;padding-top:11px;
-    border-top:.5px solid var(--stroke-soft);}
-  #tlFacts > div{font-size:10px;letter-spacing:.03em;text-transform:uppercase;color:var(--dimmer);}
-  #tlFacts b{display:block;font-family:var(--mono);font-size:15px;font-weight:600;
+  #tlFacts{display:grid;grid-template-columns:repeat(3,1fr);gap:12px 8px;
+    margin-top:15px;padding-top:14px;border-top:.5px solid var(--stroke-soft);}
+  #tlFacts > div{font-size:9.5px;letter-spacing:.03em;text-transform:uppercase;
+    color:var(--dimmer);white-space:nowrap;}
+  #tlFacts b{display:block;font-family:var(--mono);font-size:14px;font-weight:600;
     color:var(--text);letter-spacing:-.03em;margin-top:3px;text-transform:none;
-    font-variant-numeric:tabular-nums;white-space:nowrap;}
-  #tlFacts > div{white-space:nowrap;}
-  #tlFacts .grow{flex:1;}
+    font-variant-numeric:tabular-nums;}
+
+  /* ─────────────── компактная плашка (только узкие экраны) ─────────────── */
+  #hud{display:none;position:absolute;z-index:var(--z-hud);
+    top:calc(12px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);
+    min-width:238px;max-width:calc(100vw - 24px);padding:9px 14px 10px;
+    background:var(--glass);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+    border:.5px solid var(--stroke);border-radius:18px;box-shadow:var(--shadow);
+    cursor:pointer;user-select:none;transition:opacity .3s var(--ease),transform .3s var(--ease);}
+  #hudTop{display:flex;align-items:baseline;justify-content:space-between;gap:10px;}
+  #hudStroke{font-size:12px;font-weight:600;letter-spacing:-.01em;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;}
+  #hudAngle{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--dim);
+    letter-spacing:-.02em;font-variant-numeric:tabular-nums;flex:none;}
+  #hudBar{position:relative;height:4px;border-radius:2px;overflow:hidden;display:flex;
+    margin:8px 0 7px;background:rgba(120,120,128,.24);}
+  #hudBar > div{height:100%;opacity:.9;}
+  #hudMarker{position:absolute;top:-2px;width:2px;height:8px;background:#fff;border-radius:1px;
+    box-shadow:0 0 8px rgba(255,255,255,.85);pointer-events:none;}
+  #hudVals{display:flex;gap:14px;justify-content:space-between;
+    font-family:var(--mono);font-size:11px;color:var(--dim);letter-spacing:-.02em;
+    font-variant-numeric:tabular-nums;}
 
   /* ─────────────── плавающие кнопки и шторки ─────────────── */
   .fab{display:none;position:absolute;z-index:var(--z-sheet);align-items:center;
@@ -290,22 +309,16 @@
     #left{padding-bottom:4px;}
     #left.open,#right.open{transform:none;
       bottom:calc(80px + env(safe-area-inset-bottom));max-height:min(74vh,700px);}
-    /* открытая шторка — линейка цикла уходит, чтобы не мешать */
-    body.sheet-open #timeline{opacity:0;transform:translateY(24px);pointer-events:none;
-      transition:opacity .3s var(--ease),transform .3s var(--ease);}
+    /* компактная плашка вместо панелей; при открытой шторке она прячется */
+    #hud{display:block;}
+    body.sheet-open #hud{opacity:0;transform:translateX(-50%) translateY(-14px);pointer-events:none;}
     #left .sheetGrip,#right .sheetGrip{display:block;}
     #left{overflow-y:auto;}
     #right{bottom:calc(8px + env(safe-area-inset-bottom));}
     #chartHost{height:min(42vh,360px);}
-    /* нижняя линейка компактнее и уступает место кнопкам */
-    #timeline{left:8px;right:8px;bottom:calc(80px + env(safe-area-inset-bottom));padding:11px 14px;}
-    #tlFacts{gap:16px;overflow-x:auto;scrollbar-width:none;}
-    #tlFacts::-webkit-scrollbar{display:none;}
   }
   @media (max-width:640px){
-    #tlNames{font-size:9.5px;}
-    #tlFacts > div{font-size:9px;}
-    #tlFacts b{font-size:13px;}
+    #tlFacts{grid-template-columns:repeat(2,1fr);}
     #headStats{gap:10px;}
     .switches{grid-template-columns:1fr;}
     #err{max-width:88vw;font-size:12px;}
@@ -316,7 +329,7 @@
 </style>
 <script type="importmap">
 { "imports": {
-    "three": "./vendor/three/three.module.js?v=6",
+    "three": "./vendor/three/three.module.js?v=7",
     "three/addons/": "./vendor/three/addons/"
 } }
 </script>
@@ -375,6 +388,26 @@
     <div class="ctl" style="margin:9px 0 0">
       <div class="cap"><span data-ru="Перемотка по углу" data-en="Crank angle">Перемотка по углу</span><b id="scrubVal">0°</b></div>
       <input type="range" id="scrub" min="0" max="720" value="0" step="1">
+    </div>
+
+    <div id="cycleStrip">
+      <div id="tlTrack">
+        <div style="flex:1;background:var(--intake)"></div>
+        <div style="flex:1;background:var(--compress)"></div>
+        <div style="flex:1;background:var(--power)"></div>
+        <div style="flex:1;background:var(--exhaust)"></div>
+        <div id="tlMarker"></div>
+      </div>
+      <div id="tlNames"></div>
+    </div>
+
+    <div id="tlFacts">
+      <div><span data-ru="давление" data-en="pressure"></span><b id="fP">—</b></div>
+      <div><span data-ru="температура" data-en="temperature"></span><b id="fT">—</b></div>
+      <div><span data-ru="сгорело" data-en="burned"></span><b id="fX">—</b></div>
+      <div><span data-ru="момент" data-en="torque"></span><b id="fM">—</b></div>
+      <div><span data-ru="обороты" data-en="speed"></span><b id="fRpm">—</b></div>
+      <div><span data-ru="наддув" data-en="boost"></span><b id="fBoost">—</b></div>
     </div>
   </div>
 
@@ -614,27 +647,24 @@
   </div>
 </div>
 
-<!-- ══════════════ НИЖНЯЯ ЛИНЕЙКА ══════════════ -->
-<div class="panel" id="timeline">
-  <div id="tlTrack">
+<!-- ══════════════ КОМПАКТНАЯ ПЛАШКА ДЛЯ ТЕЛЕФОНА ══════════════ -->
+<div id="hud" role="button" tabindex="0" aria-label="Открыть управление">
+  <div id="hudTop">
+    <span id="hudStroke">—</span>
+    <span id="hudAngle">0°</span>
+  </div>
+  <div id="hudBar">
     <div style="flex:1;background:var(--intake)"></div>
     <div style="flex:1;background:var(--compress)"></div>
     <div style="flex:1;background:var(--power)"></div>
     <div style="flex:1;background:var(--exhaust)"></div>
-    <div id="tlMarker"></div>
+    <div id="hudMarker"></div>
   </div>
-  <div id="tlNames"></div>
-  <div id="tlFacts">
-    <div><span data-ru="давление" data-en="pressure"></span><b id="fP">—</b></div>
-    <div><span data-ru="температура" data-en="temperature"></span><b id="fT">—</b></div>
-    <div><span data-ru="сгорело" data-en="burned"></span><b id="fX">—</b></div>
-    <div><span data-ru="момент" data-en="torque"></span><b id="fM">—</b></div>
-    <div><span data-ru="обороты" data-en="speed"></span><b id="fRpm">—</b></div>
-    <div class="grow"></div>
-    <div><span data-ru="наддув" data-en="boost"></span><b id="fBoost">—</b></div>
+  <div id="hudVals">
+    <span id="hudP">—</span><span id="hudT">—</span><span id="hudRpm">—</span>
   </div>
 </div>
 
-<script type="module" src="./src/main.js?v=6"></script>
+<script type="module" src="./src/main.js?v=7"></script>
 </body>
 </html>

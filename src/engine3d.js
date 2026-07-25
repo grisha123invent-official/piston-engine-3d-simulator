@@ -16,7 +16,7 @@
  * длины впускного тракта для переменного впуска и профиль впускного кулачка
  * под цикл Аткинсона.
  *
- *   import { buildMechanism } from './engine3d.js?v=6';
+ *   import { buildMechanism } from './engine3d.js?v=7';
  *   const mech = buildMechanism({ layout: 'v8', eps: 10 });
  *   scene.add(mech.group);
  *   mech.update(frame);            // каждый кадр, frame — FrameState (§6 + §5 контракта 2)
@@ -26,8 +26,8 @@
 
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
-import { L, layoutSpec, PIN_Y_TDC } from './layout.js?v=6';
-import { t, onLangChange } from './i18n.js?v=6';
+import { L, layoutSpec, PIN_Y_TDC } from './layout.js?v=7';
+import { t, onLangChange } from './i18n.js?v=7';
 
 /* ═══════════ подписи деталей: пары { ru, en } ═══════════
    Строки живут здесь, а не в общем словаре: подпись и деталь читаются рядом.

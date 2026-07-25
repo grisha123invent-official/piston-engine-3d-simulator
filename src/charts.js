@@ -15,14 +15,14 @@
  *                       bsfc_g_kWh, effBrake, knockIntegral, best } — карта режимов
  *   engine.cycle.shakeX_N / shakeY_N,  engine.metrics.balance
  *
- *   import { createCharts } from './charts.js?v=5';
+ *   import { createCharts } from './charts.js?v=6';
  *   const charts = createCharts(document.getElementById('charts'));
  *   charts.setEngine(engine);
  *   charts.setActive('pv');
  *   charts.update(frame);          // каждый кадр
  */
 
-import { t, onLangChange } from './i18n.js?v=5';
+import { t, onLangChange } from './i18n.js?v=6';
 
 /* ══════════════ палитра и мелкие утилиты ══════════════ */
 

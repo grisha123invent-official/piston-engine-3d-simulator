@@ -31,7 +31,7 @@
  */
 
 import * as THREE from 'three';
-import { L, PIN_Y_TDC, layoutSpec } from './layout.js?v=5';
+import { L, PIN_Y_TDC, layoutSpec } from './layout.js?v=6';
 
 /* ─────────────────────────── константы ─────────────────────────── */
 
